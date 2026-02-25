@@ -947,23 +947,30 @@ async function parseQgsXml(xmlText, internalZip, externalZip, gpkgFiles, geojson
       }
     }
 
-    // Try GPKG with sql.js (graceful degradation)
-    if (!featuresLoaded && gpkgFiles && gpkgFiles.length > 0) {
-      const gpkgMatch = gpkgFiles.find(n => n.toLowerCase().includes(baseName) || gpkgFiles.length === 1);
-      if (gpkgMatch) {
-        setReadingLabel('Lecture GPKG…', gpkgMatch.split('/').pop());
+    // Try GPKG with sql.js — cherche dans le QGZ d'abord, puis dans le ZIP parent
+    // (cas : ZIP contenant un .qgz + des .gpkg côte à côte)
+    const gpkgCandidates = [
+      ...(gpkgFiles || []).map(n => ({ name: n, zip: internalZip })),
+      ...(externalZip
+        ? Object.keys(externalZip.files)
+            .filter(n => n.endsWith('.gpkg'))
+            .map(n => ({ name: n, zip: externalZip }))
+        : [])
+    ];
+    if (!featuresLoaded && gpkgCandidates.length > 0) {
+      const match = gpkgCandidates.find(s => s.name.toLowerCase().includes(baseName))
+                 || (gpkgCandidates.length === 1 ? gpkgCandidates[0] : null);
+      if (match && match.zip && match.zip.files[match.name]) {
+        setReadingLabel('Lecture GPKG…', match.name.split('/').pop());
         try {
-          const zip = internalZip || externalZip;
-          if (zip && zip.files[gpkgMatch]) {
-            const gpkgAb = await zip.files[gpkgMatch].async('arraybuffer');
-            const gpkgFeatures = await readGpkgWithSqlJs(gpkgAb, name);
-            if (gpkgFeatures && gpkgFeatures.length > 0) {
-              features = gpkgFeatures;
-              featuresLoaded = true;
-            }
+          const gpkgAb = await match.zip.files[match.name].async('arraybuffer');
+          const gpkgFeatures = await readGpkgWithSqlJs(gpkgAb, name);
+          if (gpkgFeatures && gpkgFeatures.length > 0) {
+            features = gpkgFeatures;
+            featuresLoaded = true;
           }
         } catch(e) {
-          console.warn('GPKG read failed (sql.js may not be available):', e.message);
+          console.warn('GPKG read failed:', e.message);
         }
       }
     }
@@ -1501,7 +1508,7 @@ function showPreview(layers, fileName) {
         <div class="layer-include">
           <input type="checkbox" class="checkbox" id="inc-${idx}" checked onchange="updateImportCount()">
           <label for="inc-${idx}">Inclure cette couche dans l'import</label>
-          ${!layer.hasData ? '<span style="font-size:11px;color:var(--yellow);margin-left:auto">⚠ Schéma sans données (GPKG non lu)</span>' : ''}
+          ${!layer.hasData ? '<span style="font-size:11px;color:var(--yellow);margin-left:auto" title="Les données sont dans des fichiers GPKG externes non inclus dans le QGZ. Pour importer les données, compressez le .qgz et les .gpkg dans un même ZIP.">⚠ Schéma seul — données GPKG non trouvées</span>' : ''}
         </div>
         <table class="field-table">
           <thead><tr><th>CHAMP QGIS</th><th>TYPE QGIS</th><th>TYPE GRIST</th></tr></thead>
@@ -1510,6 +1517,15 @@ function showPreview(layers, fileName) {
       </div>`;
     body.appendChild(card);
   });
+
+  // Bandeau d'aide si aucune couche n'a de données (GPKG externes non fournis)
+  const noDataLayers = layers.filter(l => !l.hasData);
+  if (noDataLayers.length > 0 && noDataLayers.length === layers.length) {
+    const hint = document.createElement('div');
+    hint.style.cssText = 'margin:12px 0 4px;padding:10px 14px;background:rgba(227,179,65,0.1);border:1px solid rgba(227,179,65,0.3);border-radius:8px;font-size:12px;color:var(--text-muted);line-height:1.5';
+    hint.innerHTML = '<strong style="color:var(--yellow)">Données non incluses dans le QGZ</strong><br>Les fichiers GPKG sont des sources externes non embarquées dans le projet. Pour importer les données, créez un ZIP contenant le <strong>.qgz</strong> et les <strong>.gpkg</strong> associés, puis déposez ce ZIP.';
+    body.insertBefore(hint, body.firstChild);
+  }
 
   setState('preview');
   // Update button count AFTER checkboxes are in DOM
@@ -1576,6 +1592,7 @@ async function startImport() {
   }
 
   const importedLayerData = {};
+  const layerErrors = {};
   let allOk = true;
 
   for (const layer of selectedLayers) {
@@ -1643,6 +1660,7 @@ async function startImport() {
 
     } catch(err) {
       console.error('Import error for', layer.name, err);
+      layerErrors[layer.displayName || layer.name] = err.message || String(err);
       setProgress(layer.name, 100, false, true);
       allOk = false;
     }
@@ -1680,7 +1698,18 @@ async function startImport() {
       showMap(importedLayerData);
     }
   } else {
-    document.getElementById('error-msg').textContent = 'Aucune table créée. Vérifiez les droits du widget sur le document Grist (accès "full" requis).';
+    const errEntries = Object.entries(layerErrors);
+    let msg;
+    if (errEntries.length > 0) {
+      msg = errEntries.map(([n, e]) => `• ${n} : ${e}`).join('\n');
+      // Si l'erreur mentionne les droits, ajouter l'indication
+      if (msg.toLowerCase().includes('not allowed') || msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('access')) {
+        msg += '\n\nVérifiez que le niveau d\'accès du widget est "Accès complet au document".';
+      }
+    } else {
+      msg = 'Aucune table créée. Vérifiez que le niveau d\'accès du widget est "Accès complet au document".';
+    }
+    document.getElementById('error-msg').textContent = msg;
     setState('error');
   }
 }
