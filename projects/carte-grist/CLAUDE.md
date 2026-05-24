@@ -109,13 +109,14 @@ carte-grist/
   restent approximatifs.
 - **MNT IGN** : `ignmnt://` requiert `OffscreenCanvas` (Chrome/Edge/Firefox,
   Safari ≥ 16.4) ; repli tuile plate si décodage échoue. Couverture France.
-- **⚠️ Modèles GLB** : le dépôt `nic01asfr.github.io/3D-Models/` ne contient
-  réellement que **3 fichiers** (`Lantern.glb`, `B0.glb`, `AB4.glb`). La
-  bibliothèque `MODEL_LIBRARY` (héritée du widget d'origine) référence
-  ~20 noms inexistants (StreetLamp, Bench, Tree_*, Car…) → ces points retombent
-  silencieusement sur le cercle de hit (pas de 3D). La catégorie Éclairage a été
-  repointée sur les fichiers réels ; pour les autres catégories il faut héberger
-  les vrais GLB (ou changer `MODEL_LIBRARY.baseUrl`).
+- **Modèles GLB** : catalogue procédural généré dans le repo par
+  `scripts/generate-models.js` (`npm run models`) → `published/models/<set>/*.glb`
+  (+ `catalog.json`). **37 modèles × 2 sets** (`colored` / `mono`), low-poly,
+  modélisés en mètres (scale 1), base au sol. Servis via GitHub Pages :
+  `MODEL_LIBRARY.baseRoot = https://nic01asfr.github.io/Widgets-Grist/models/`,
+  set choisi dans le module Modèles (`A.setModelSet`). ⚠️ Les modèles n'apparaîtront
+  qu'une fois `published/` déployé sur `gh-pages` (sinon repli cercle de hit).
+  Pour ajouter un objet : éditer le `CATALOG` du générateur et relancer `npm run models`.
 - **Interaction sur les modèles 3D** : les objets three.js ne sont pas
   interrogeables par `queryRenderedFeatures`. On ajoute donc une couche de
   cercles MapLibre (faible opacité) servant de zone de clic / surbrillance.

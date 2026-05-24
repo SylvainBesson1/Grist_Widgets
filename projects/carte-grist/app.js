@@ -60,6 +60,7 @@ const STATE = {
     settings: {
         basemap: 'liberty',
         projection: 'globe',     // 'globe' (façon Google Earth, → mercator en zoom) | 'mercator'
+        modelSet: 'colored',     // jeu de modèles 3D : 'colored' | 'mono'
         buildings3D: true,
         terrain3D: false,
         terrainSource: 'terrarium',
@@ -104,38 +105,60 @@ const PALETTE_INFO = {
 // ============================================================
 // BIBLIOTHÈQUE DE MODÈLES 3D
 // ============================================================
+// Catalogue 3D généré dans le repo (scripts/generate-models.js → published/models/)
+// Servi via GitHub Pages. Deux sets de style : 'colored' | 'mono'. Modèles en mètres (scale 1).
 const MODEL_LIBRARY = {
-    baseUrl: 'https://nic01asfr.github.io/3D-Models/',
+    baseRoot: 'https://nic01asfr.github.io/Widgets-Grist/models/',
+    set: 'colored',
+    get baseUrl() { return this.baseRoot + this.set + '/'; },
     categories: {
         lighting: { icon: '💡', name: 'Éclairage', models: [
-            { id: 'streetlamp', name: 'Lampadaire', icon: '🏮', file: 'Lantern.glb', scale: 1.5 },
-            { id: 'lampball', name: 'Lampe boule', icon: '💡', file: 'B0.glb', scale: 1 },
+            { id: 'streetlamp', name: 'Lampadaire', icon: '🏮', file: 'Streetlamp.glb', scale: 1 },
+            { id: 'streetlamp_double', name: 'Lampadaire double', icon: '🏮', file: 'StreetlampDouble.glb', scale: 1 },
             { id: 'lantern', name: 'Lanterne', icon: '🏮', file: 'Lantern.glb', scale: 1 },
-            { id: 'bollardlight', name: 'Borne lumineuse', icon: '🔆', file: 'B0.glb', scale: 1 },
-        ]},
-        signalization: { icon: '🚦', name: 'Signalisation', models: [
-            { id: 'trafficlight', name: 'Feu tricolore', icon: '🚦', file: 'TrafficLight.glb', scale: 1 },
-        ]},
-        vegetation: { icon: '🌳', name: 'Végétation', models: [
-            { id: 'tree_deciduous', name: 'Arbre feuillu', icon: '🌳', file: 'Tree_Deciduous.glb', scale: 1.5 },
-            { id: 'tree_conifer', name: 'Conifère', icon: '🌲', file: 'Tree_Conifer.glb', scale: 1.5 },
-            { id: 'tree_palm', name: 'Palmier', icon: '🌴', file: 'Tree_Palm.glb', scale: 1.2 },
-            { id: 'bush', name: 'Buisson', icon: '🌿', file: 'Bush.glb', scale: 1 },
+            { id: 'lampball', name: 'Lampe boule', icon: '💡', file: 'Lampball.glb', scale: 1 },
+            { id: 'wall_light', name: 'Applique', icon: '🔆', file: 'WallLight.glb', scale: 1 },
+            { id: 'projector', name: 'Projecteur', icon: '🔦', file: 'Projector.glb', scale: 1 },
         ]},
         furniture: { icon: '🪑', name: 'Mobilier urbain', models: [
             { id: 'bench', name: 'Banc', icon: '🪑', file: 'Bench.glb', scale: 1 },
-            { id: 'trashcan', name: 'Poubelle', icon: '🗑️', file: 'TrashCan.glb', scale: 1 },
-            { id: 'shelter', name: 'Abri bus', icon: '🚏', file: 'BusShelter.glb', scale: 1 },
-            { id: 'bikerack', name: 'Arceau vélo', icon: '🚲', file: 'BikeRack.glb', scale: 1 },
+            { id: 'bench_simple', name: 'Banc simple', icon: '🪑', file: 'BenchSimple.glb', scale: 1 },
+            { id: 'picnic_table', name: 'Table pique-nique', icon: '🪵', file: 'PicnicTable.glb', scale: 1 },
+            { id: 'trashcan', name: 'Poubelle', icon: '🗑️', file: 'Trashcan.glb', scale: 1 },
+            { id: 'bus_shelter', name: 'Abri bus', icon: '🚏', file: 'BusShelter.glb', scale: 1 },
+            { id: 'bike_rack', name: 'Arceau vélo', icon: '🚲', file: 'BikeRack.glb', scale: 1 },
+            { id: 'planter', name: 'Jardinière', icon: '🪴', file: 'Planter.glb', scale: 1 },
+            { id: 'fountain', name: 'Fontaine', icon: '⛲', file: 'Fountain.glb', scale: 1 },
+            { id: 'ev_charger', name: 'Borne recharge', icon: '⚡', file: 'EvCharger.glb', scale: 1 },
+        ]},
+        vegetation: { icon: '🌳', name: 'Végétation', models: [
+            { id: 'tree_deciduous', name: 'Arbre feuillu', icon: '🌳', file: 'TreeDeciduous.glb', scale: 1 },
+            { id: 'tree_conifer', name: 'Conifère', icon: '🌲', file: 'TreeConifer.glb', scale: 1 },
+            { id: 'tree_palm', name: 'Palmier', icon: '🌴', file: 'TreePalm.glb', scale: 1 },
+            { id: 'bush', name: 'Buisson', icon: '🌿', file: 'Bush.glb', scale: 1 },
+            { id: 'hedge', name: 'Haie', icon: '🌳', file: 'Hedge.glb', scale: 1 },
+            { id: 'flowerbed', name: 'Parterre fleuri', icon: '🌷', file: 'Flowerbed.glb', scale: 1 },
+        ]},
+        signalization: { icon: '🚦', name: 'Signalisation', models: [
+            { id: 'traffic_light', name: 'Feu tricolore', icon: '🚦', file: 'TrafficLight.glb', scale: 1 },
+            { id: 'stop_sign', name: 'Panneau stop', icon: '🛑', file: 'StopSign.glb', scale: 1 },
+            { id: 'directional_sign', name: 'Panneau directionnel', icon: '🪧', file: 'DirectionalSign.glb', scale: 1 },
+            { id: 'bollard', name: 'Potelet', icon: '🔶', file: 'Bollard.glb', scale: 1 },
+            { id: 'barrier', name: 'Barrière', icon: '🚧', file: 'Barrier.glb', scale: 1 },
         ]},
         infrastructure: { icon: '🚧', name: 'Infrastructure', models: [
-            { id: 'barrier', name: 'Glissière', icon: '🚧', file: 'Barrier.glb', scale: 1 },
-            { id: 'bollard', name: 'Borne', icon: '🔶', file: 'Bollard_Stone.glb', scale: 1 },
+            { id: 'guardrail', name: 'Glissière', icon: '🚧', file: 'Guardrail.glb', scale: 1 },
+            { id: 'stone_bollard', name: 'Borne béton', icon: '🪨', file: 'StoneBollard.glb', scale: 1 },
             { id: 'pole', name: 'Poteau', icon: '🔲', file: 'Pole.glb', scale: 1 },
+            { id: 'fire_hydrant', name: 'Borne incendie', icon: '🧯', file: 'FireHydrant.glb', scale: 1 },
+            { id: 'manhole', name: 'Regard', icon: '⚫', file: 'Manhole.glb', scale: 1 },
         ]},
         vehicles: { icon: '🚗', name: 'Véhicules', models: [
             { id: 'car', name: 'Voiture', icon: '🚗', file: 'Car.glb', scale: 1 },
-            { id: 'bike', name: 'Vélo', icon: '🚲', file: 'Bicycle.glb', scale: 1 },
+            { id: 'van', name: 'Camionnette', icon: '🚐', file: 'Van.glb', scale: 1 },
+            { id: 'bus', name: 'Bus', icon: '🚌', file: 'Bus.glb', scale: 1 },
+            { id: 'bicycle', name: 'Vélo', icon: '🚲', file: 'Bicycle.glb', scale: 1 },
+            { id: 'scooter', name: 'Trottinette', icon: '🛴', file: 'Scooter.glb', scale: 1 },
             { id: 'pedestrian', name: 'Piéton', icon: '🚶', file: 'Pedestrian.glb', scale: 1 },
         ]},
     },
@@ -156,9 +179,9 @@ const OSM_PRESETS = {
     trees:           { name: 'Arbres', icon: '🌳', category: 'vegetation', model: 'tree_deciduous', query: 'node["natural"="tree"]' },
     benches:         { name: 'Bancs', icon: '🪑', category: 'furniture', model: 'bench', query: 'node["amenity"="bench"]' },
     waste:           { name: 'Poubelles', icon: '🗑️', category: 'furniture', model: 'trashcan', query: 'node["amenity"="waste_basket"]' },
-    traffic_signals: { name: 'Feux', icon: '🚦', category: 'signalization', model: 'trafficlight', query: 'node["highway"="traffic_signals"]' },
-    bus_stops:       { name: 'Arrêts bus', icon: '🚏', category: 'furniture', model: 'shelter', query: 'node["highway"="bus_stop"]' },
-    bicycle_parking: { name: 'Vélos', icon: '🚲', category: 'furniture', model: 'bikerack', query: 'node["amenity"="bicycle_parking"]' },
+    traffic_signals: { name: 'Feux', icon: '🚦', category: 'signalization', model: 'traffic_light', query: 'node["highway"="traffic_signals"]' },
+    bus_stops:       { name: 'Arrêts bus', icon: '🚏', category: 'furniture', model: 'bus_shelter', query: 'node["highway"="bus_stop"]' },
+    bicycle_parking: { name: 'Vélos', icon: '🚲', category: 'furniture', model: 'bike_rack', query: 'node["amenity"="bicycle_parking"]' },
     bollards:        { name: 'Bornes', icon: '🔶', category: 'infrastructure', model: 'bollard', query: 'node["barrier"="bollard"]' },
     roads:           { name: 'Voirie', icon: '🛤️', geomType: 'LineString', query: 'way["highway"~"primary|secondary|tertiary|residential|unclassified"]' },
     buildings:       { name: 'Bâtiments', icon: '🏢', geomType: 'Polygon', query: 'way["building"]' },
@@ -1063,14 +1086,22 @@ function renderModelsPanel() {
     $('module-title').textContent = 'Modèles 3D';
     const layer = STATE.layers.find((l) => l.id === STATE.selectedLayer);
     const isPoint = layer && (layer.geometryType === 'Point' || layer.geometryType === 'MultiPoint');
+    const setSelector = `
+        <div class="section">
+            <div class="section-title">Jeu de modèles</div>
+            <div class="seg">
+                <button class="${MODEL_LIBRARY.set === 'colored' ? 'active' : ''}" onclick="A.setModelSet('colored')">🎨 Coloré</button>
+                <button class="${MODEL_LIBRARY.set === 'mono' ? 'active' : ''}" onclick="A.setModelSet('mono')">⬜ Maquette</button>
+            </div>
+        </div>`;
     if (!isPoint) {
-        $('module-body').innerHTML = `<div class="empty"><div class="ic">📦</div><div class="t">Sélectionnez une couche de points</div><div class="h">Les modèles 3D s'appliquent aux couches ponctuelles (mobilier, arbres…)</div></div>`;
+        $('module-body').innerHTML = setSelector + `<div class="empty"><div class="ic">📦</div><div class="t">Sélectionnez une couche de points</div><div class="h">Les modèles 3D s'appliquent aux couches ponctuelles (mobilier, arbres…)</div></div>`;
         return;
     }
     const cat = layer._modelCat || 'lighting';
     const models = MODEL_LIBRARY.categories[cat].models.map((m) => ({ ...m, url: MODEL_LIBRARY.baseUrl + m.file }));
     const selId = layer.style?.library?.modelId;
-    $('module-body').innerHTML = `
+    $('module-body').innerHTML = setSelector + `
         <div class="hint">📦 Couche « ${layer.name} » — choisissez un modèle GLTF (rendu three.js).</div>
         <div class="section">
             <div class="section-title">Catégorie</div>
@@ -1718,7 +1749,7 @@ async function restoreProject(p) {
     STATE.layers = [];
     if (p.projectName) { STATE.projectName = p.projectName; $('project-name').textContent = p.projectName; }
     if (p.location?.lat) { STATE.location = p.location; map.jumpTo({ center: [p.location.lng, p.location.lat] }); }
-    if (p.settings) { Object.assign(STATE.settings, p.settings); STATE.settings.date = new Date(p.settings.date || Date.now()); }
+    if (p.settings) { Object.assign(STATE.settings, p.settings); STATE.settings.date = new Date(p.settings.date || Date.now()); MODEL_LIBRARY.set = STATE.settings.modelSet || 'colored'; }
     (p.layers || []).forEach((ld) => {
         const layer = { ...ld, visible: ld.visible !== false }; initSymbolization(layer); STATE.layers.push(layer); addLayerToMap(layer);
     });
@@ -1870,6 +1901,11 @@ const A = {
 
     // Modèles
     setModelCat(id, cat) { const l = STATE.layers.find((x) => x.id === id); if (l) { l._modelCat = cat; renderModelsPanel(); } },
+    setModelSet(set) {
+        MODEL_LIBRARY.set = set; STATE.settings.modelSet = set;
+        Models3D.gltfCache.clear(); Models3D.protoCache.clear(); // recharger les GLB du nouveau set
+        Models3D.build(); renderModelsPanel(); markDirty();
+    },
     pickModel(id, modelId) {
         const l = STATE.layers.find((x) => x.id === id); if (!l) return;
         l.style.mode = 'library'; l.style.library = { modelId };
