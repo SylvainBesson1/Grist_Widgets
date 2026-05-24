@@ -445,6 +445,7 @@ const Models3D = {
     _vScale: new THREE.Vector3(), _obj: new THREE.Object3D(), _m4: new THREE.Matrix4(),
 
     scheduleBuild() { clearTimeout(this._buildTimer); this._buildTimer = setTimeout(() => this.build(), 60); },
+    forceBuild() { clearTimeout(this._buildTimer); this._buildTimer = null; this.build(); }, // rebuild immédiat (changement de modèle)
     // alias rétro-compat (anciens appels)
     rebuildScene() { this.build(); },
     scheduleRebuild() { this.scheduleBuild(); },
@@ -1984,19 +1985,19 @@ const A = {
             l.style.library = { modelId: first.id };
             l.style.common = { ...(l.style.common || {}), scale: first.scale || 1 };
         }
-        applyPointStyle(l); renderInspector(); markDirty();
+        applyPointStyle(l); Models3D.forceBuild(); renderInspector(); markDirty();
     },
     openLayerModel(id) { STATE.selectedLayer = id; inspSymTab = 'Modèle 3D'; openModule('symbo'); },
     setModelSet(set) {
         MODEL_LIBRARY.set = set; STATE.settings.modelSet = set;
         Models3D.gltfCache.clear(); Models3D.protoCache.clear(); // recharger les GLB du nouveau set
-        Models3D.build(); renderModelsPanel(); markDirty();
+        Models3D.forceBuild(); renderModelsPanel(); markDirty();
     },
     setModelBase(url) {
         url = (url || '').trim().replace(/\/+$/, '') + '/';
         MODEL_LIBRARY.baseRoot = url; MODEL_BASE_EXPLICIT = true;
         try { localStorage.setItem('atlas_model_base', url); } catch (e) {}
-        Models3D.gltfCache.clear(); Models3D.protoCache.clear(); Models3D.build();
+        Models3D.gltfCache.clear(); Models3D.protoCache.clear(); Models3D.forceBuild();
         renderModelsPanel(); showToast('Source modèles définie', 'success');
     },
     async testModelBase() {
@@ -2019,7 +2020,7 @@ const A = {
         (l.geojson?.features || []).forEach((f) => { if (f.properties) delete f.properties._modelId; });
         const m = findModel(modelId);
         l.style.common = { ...(l.style.common || {}), scale: m?.scale || 1, rotationX: 0, rotationY: 0, rotationZ: 0, offsetX: 0, offsetY: 0, offsetZ: 0 };
-        applyLayerStyle(l); renderInspector(); markDirty();
+        applyLayerStyle(l); Models3D.forceBuild(); renderInspector(); markDirty();
         showToast(`Modèle « ${m?.name} » appliqué`, 'success');
     },
 
@@ -2108,9 +2109,9 @@ const A = {
         const l = STATE.layers.find((x) => x.id === id); if (!l) return;
         const sym = initSymbolization(l); let cat = sym.model.categories.find((c) => String(c.value) === String(value));
         if (!cat) { cat = { value }; sym.model.categories.push(cat); }
-        cat.modelId = modelId || null; applyLayerStyle(l); renderInspector();
+        cat.modelId = modelId || null; applyLayerStyle(l); Models3D.forceBuild(); renderInspector();
     },
-    setDefaultModel(id, modelId) { const l = STATE.layers.find((x) => x.id === id); if (!l) return; initSymbolization(l).model.defaultModelId = modelId || null; applyLayerStyle(l); },
+    setDefaultModel(id, modelId) { const l = STATE.layers.find((x) => x.id === id); if (!l) return; initSymbolization(l).model.defaultModelId = modelId || null; applyLayerStyle(l); Models3D.forceBuild(); },
     setCommon(id, param, v, elId, unit) {
         const l = STATE.layers.find((x) => x.id === id); if (!l) return;
         l.style.common = l.style.common || {}; l.style.common[param] = +v;
