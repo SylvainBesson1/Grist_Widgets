@@ -1179,7 +1179,7 @@ function renderLayersPanel(mode) {
                         <div class="layer-name">${l.name}</div>
                         <div class="layer-meta"><span>${l.geojson?.features?.length || 0} obj.</span>${is3D ? '<span class="badge3d">3D</span>' : ''}${l.kind === 'table' ? '<span class="badge-saved">⛓ table</span>' : (l.gristId ? '<span class="badge-saved">Grist</span>' : '')}</div>
                     </div>
-                    ${l.kind === 'table' ? `<button class="layer-act" onclick="A.refreshLayer('${l.id}', event)" title="Rafraîchir depuis la table">🔄</button>` : (CONFIG.grist.ready ? `<button class="layer-act" onclick="A.explodeToTable('${l.id}', event)" title="Exploser en table Grist (1 ligne = 1 objet)">📤</button>` : '')}
+                    ${l.kind === 'table' ? `<button class="layer-act" onclick="A.refreshLayer('${l.id}', event)" title="Rafraîchir depuis la table">🔄</button>` : ''}
                     <button class="layer-act" onclick="A.zoomLayer('${l.id}', event)" title="Zoomer sur la couche">🎯</button>
                     <button class="layer-del" onclick="A.deleteLayer('${l.id}', event)" title="Supprimer">🗑️</button>
                 </div>`;
@@ -1779,6 +1779,48 @@ function autoRefreshLinked() {
         for (const l of STATE.layers) if (l.kind === 'table') { try { await reloadLinkedLayer(l); } catch (e) {} }
     }, 250);
 }
+// Entable une couche blob → table Grist standard + re-liaison (convention §5).
+// Renvoie le nombre d'objets ; lève en cas d'échec (l'appelant gère le repli blob).
+async function entableLayer(layer) {
+    const feats = layer.geojson?.features || [];
+    if (!feats.length) throw new Error('couche vide');
+    const propNames = new Set();
+    feats.forEach((f) => Object.keys(f.properties || {}).forEach((k) => { if (!k.startsWith('_') && k !== 'geometry_json') propNames.add(k); }));
+    const attrCols = [...propNames];
+    const colId = {}; attrCols.forEach((n) => colId[n] = sanitizeId(n));
+    const OV = { _scale: 'scale', _rotationX: 'rotation_x', _rotationY: 'rotation_y', _rotationZ: 'rotation_z', _offsetX: 'offset_x', _offsetY: 'offset_y', _offsetZ: 'offset_z' };
+    const ovMap = { scale: 'scale', rotation_x: 'rotationX', rotation_y: 'rotationY', rotation_z: 'rotationZ', offset_x: 'offsetX', offset_y: 'offsetY', offset_z: 'offsetZ' };
+    const ovUsed = {};
+    feats.forEach((f) => { const p = f.properties || {}; for (const k in OV) if (p[k] != null && p[k] !== '') ovUsed[OV[k]] = 1; });
+    const is3D = layer.style?.mode === 'library' || layer.style?.mode === 'custom';
+    const isPt = layer.geometryType === 'Point' || layer.geometryType === 'MultiPoint';
+    const colDefs = [
+        { id: 'geometry_json', fields: { label: 'Géométrie (GeoJSON)', type: 'Text' } },
+        ...attrCols.map((n) => ({ id: colId[n], fields: { label: n, type: inferGristType(feats.map((f) => f.properties?.[n])) } })),
+        ...Object.keys(ovUsed).map((cn) => ({ id: cn, fields: { label: cn, type: 'Numeric' } })),
+    ];
+    if (is3D) colDefs.push({ id: 'model_id', fields: { label: 'model_id', type: 'Text' } });
+    const tableName = sanitizeId('Atlas_' + layer.name);
+    const addRes = await grist.docApi.applyUserActions([['AddTable', tableName, colDefs]]);
+    const actualTable = addRes?.retValues?.[0]?.table_id || tableName;
+    if (isPt) { try { await grist.docApi.applyUserActions([['AddColumn', actualTable, 'model_glb', { type: 'Attachments', label: 'Modèle 3D (PJ)' }]]); } catch (e) {} }
+    const BATCH = 200;
+    for (let i = 0; i < feats.length; i += BATCH) {
+        const batch = feats.slice(i, i + BATCH);
+        const colData = { geometry_json: batch.map((f) => JSON.stringify(f.geometry)) };
+        attrCols.forEach((n) => { colData[colId[n]] = batch.map((f) => { const v = f.properties?.[n]; return v == null ? null : (typeof v === 'object' ? JSON.stringify(v) : v); }); });
+        for (const cn in ovUsed) colData[cn] = batch.map((f) => resolveFeatureProps(f, layer)[ovMap[cn]] ?? null);
+        if (is3D) colData.model_id = batch.map((f) => resolveFeatureProps(f, layer).modelId || null);
+        await grist.docApi.applyUserActions([['BulkAddRecord', actualTable, Array(batch.length).fill(null), colData]]);
+    }
+    const cols = await grist.docApi.fetchTable(actualTable);
+    layer.geojson = tableToGeoJSON(cols, 'geometry_json');
+    layer.kind = 'table'; layer.sourceTable = actualTable; layer.geometryColumn = 'geometry_json'; layer.source = 'grist-table';
+    layer._perObjectColor = layer.geojson.features.some((f) => f.properties && f.properties.fill_color);
+    indexFeatures(layer); removeLayerGfx(layer); addLayerToMap(layer); Models3D.scheduleBuild();
+    saveLayerToGrist(layer, true); markDirty();
+    return layer.geojson.features.length;
+}
 
 // ============================================================
 // IMPORT — OSM (Overpass) & fichier
@@ -1846,7 +1888,7 @@ function makeLayer(name, geomType, geojson, category, modelId) {
     initSymbolization(layer);
     return layer;
 }
-function finalizeNewLayer(layer) {
+async function finalizeNewLayer(layer) {
     STATE.layers.push(layer);
     addLayerToMap(layer);
     updateRailBadge();
@@ -1854,7 +1896,18 @@ function finalizeNewLayer(layer) {
     markDirty();
     if (STATE.currentModule === 'couches') renderLayersPanel(STATE.currentModule);
     else openModule('couches');
-    saveLayerToGrist(layer, true);
+    // Auto-entablement : sous Grist, tout import BLOB devient une table standard (donnée
+    // de référence). Les couches déjà liées (kind:'table', via 🔗) ne sont pas ré-entablées.
+    // Repli blob si pas de Grist ou si l'écriture échoue (jamais de perte).
+    if (CONFIG.grist.ready && layer.kind !== 'table') {
+        showLoading('Enregistrement dans Grist…');
+        try { await entableLayer(layer); }
+        catch (e) { console.warn('auto-entable', e.message); saveLayerToGrist(layer, true); showToast('Couche en mode local (entablement Grist échoué)', 'warning'); }
+        hideLoading();
+        if (STATE.currentModule === 'couches') renderLayersPanel(STATE.currentModule);
+    } else {
+        saveLayerToGrist(layer, true);
+    }
 }
 function fitToLayer(layer) {
     const bounds = new maplibregl.LngLatBounds();
@@ -2187,6 +2240,22 @@ function updateRailBadge() {
     const b = $('rail-couches-badge'); const n = STATE.layers.length;
     b.style.display = n ? 'block' : 'none'; b.textContent = n;
 }
+// Petite modale de choix (Promise<key|null>) — pas d'infra modale, on injecte le DOM.
+function confirmChoice({ title, message, choices }) {
+    return new Promise((resolve) => {
+        const ov = document.createElement('div');
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(31,27,20,0.4);display:flex;align-items:center;justify-content:center;z-index:5000';
+        const box = document.createElement('div');
+        box.style.cssText = 'background:#F4EFE3;color:#1F1B14;border-radius:12px;padding:18px;max-width:380px;width:90%;box-shadow:0 12px 40px rgba(0,0,0,0.25);font-family:"Hanken Grotesk",sans-serif';
+        box.innerHTML = `<div style="font-weight:600;font-size:15px;margin-bottom:6px">${title}</div><div style="font-size:13px;color:#6b6256;margin-bottom:14px">${message}</div>`;
+        const btns = document.createElement('div'); btns.style.cssText = 'display:flex;flex-direction:column;gap:8px';
+        const mk = (label, onclick, danger) => { const b = document.createElement('button'); b.textContent = label; b.style.cssText = 'width:100%;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;' + (danger ? 'background:#C44536;color:#fff;border:1px solid #C44536' : 'background:#fff;border:1px solid rgba(0,0,0,0.14)'); b.onclick = onclick; return b; };
+        choices.forEach((c) => btns.appendChild(mk(c.label, () => { ov.remove(); resolve(c.key); }, c.kind === 'danger')));
+        const cancel = document.createElement('button'); cancel.textContent = 'Annuler'; cancel.style.cssText = 'width:100%;padding:8px;border:none;background:transparent;color:#6b6256;cursor:pointer;font-size:13px;margin-top:2px'; cancel.onclick = () => { ov.remove(); resolve(null); };
+        btns.appendChild(cancel); box.appendChild(btns); ov.appendChild(box); document.body.appendChild(ov);
+        ov.onclick = (e) => { if (e.target === ov) { ov.remove(); resolve(null); } };
+    });
+}
 
 // ============================================================
 // GLOBAL HANDLER NAMESPACE (inline onclick → A.xxx)
@@ -2279,47 +2348,8 @@ const A = {
         if (!feats.length) { showToast('Couche vide', 'warning'); return; }
         showLoading('Création de la table…');
         try {
-            // colonnes d'attributs (hors internes _* et géométrie)
-            const propNames = new Set();
-            feats.forEach((f) => Object.keys(f.properties || {}).forEach((k) => { if (!k.startsWith('_') && k !== 'geometry_json') propNames.add(k); }));
-            const attrCols = [...propNames];
-            const colId = {}; attrCols.forEach((n) => colId[n] = sanitizeId(n));
-            // colonnes d'override par objet réellement utilisées
-            const OV = { _scale: 'scale', _rotationX: 'rotation_x', _rotationY: 'rotation_y', _rotationZ: 'rotation_z', _offsetX: 'offset_x', _offsetY: 'offset_y', _offsetZ: 'offset_z' };
-            const ovMap = { scale: 'scale', rotation_x: 'rotationX', rotation_y: 'rotationY', rotation_z: 'rotationZ', offset_x: 'offsetX', offset_y: 'offsetY', offset_z: 'offsetZ' };
-            const ovUsed = {};
-            feats.forEach((f) => { const p = f.properties || {}; for (const k in OV) if (p[k] != null && p[k] !== '') ovUsed[OV[k]] = 1; });
-            const is3D = layer.style?.mode === 'library' || layer.style?.mode === 'custom';
-            const colDefs = [
-                { id: 'geometry_json', fields: { label: 'Géométrie (GeoJSON)', type: 'Text' } },
-                ...attrCols.map((n) => ({ id: colId[n], fields: { label: n, type: inferGristType(feats.map((f) => f.properties?.[n])) } })),
-                ...Object.keys(ovUsed).map((cn) => ({ id: cn, fields: { label: cn, type: 'Numeric' } })),
-            ];
-            if (is3D) colDefs.push({ id: 'model_id', fields: { label: 'model_id', type: 'Text' } });
-            const isPt = layer.geometryType === 'Point' || layer.geometryType === 'MultiPoint';
-            const tableName = sanitizeId('Atlas_' + layer.name);
-            const addRes = await grist.docApi.applyUserActions([['AddTable', tableName, colDefs]]);
-            const actualTable = addRes?.retValues?.[0]?.table_id || tableName;
-            // Colonne pièce jointe (type Attachments) — créée séparément : AddTable ne fixe
-            // pas fiablement les types spéciaux (sortait en Texte). 1 GLB par enregistrement.
-            if (isPt) { try { await grist.docApi.applyUserActions([['AddColumn', actualTable, 'model_glb', { type: 'Attachments', label: 'Modèle 3D (PJ)' }]]); } catch (e) {} }
-            const BATCH = 200;
-            for (let i = 0; i < feats.length; i += BATCH) {
-                const batch = feats.slice(i, i + BATCH);
-                const colData = { geometry_json: batch.map((f) => JSON.stringify(f.geometry)) };
-                attrCols.forEach((n) => { colData[colId[n]] = batch.map((f) => { const v = f.properties?.[n]; return v == null ? null : (typeof v === 'object' ? JSON.stringify(v) : v); }); });
-                for (const cn in ovUsed) colData[cn] = batch.map((f) => resolveFeatureProps(f, layer)[ovMap[cn]] ?? null);
-                if (is3D) colData.model_id = batch.map((f) => resolveFeatureProps(f, layer).modelId || null);
-                await grist.docApi.applyUserActions([['BulkAddRecord', actualTable, Array(batch.length).fill(null), colData]]);
-            }
-            // relier la couche à la nouvelle table (re-fetch → rowIds)
-            const cols = await grist.docApi.fetchTable(actualTable);
-            layer.geojson = tableToGeoJSON(cols, 'geometry_json');
-            layer.kind = 'table'; layer.sourceTable = actualTable; layer.geometryColumn = 'geometry_json'; layer.source = 'grist-table';
-            layer._perObjectColor = layer.geojson.features.some((f) => f.properties && f.properties.fill_color);
-            indexFeatures(layer); removeLayerGfx(layer); addLayerToMap(layer); Models3D.scheduleBuild();
-            saveLayerToGrist(layer, true); markDirty();
-            hideLoading(); showToast(`Table « ${actualTable} » créée · ${feats.length} objets`, 'success');
+            const n = await entableLayer(layer);
+            hideLoading(); showToast(`Table créée · ${n} objets`, 'success');
             if (STATE.currentModule === 'couches') renderLayersPanel(STATE.currentModule);
         } catch (err) { hideLoading(); showToast('Erreur : ' + err.message, 'error'); }
     },
@@ -2350,16 +2380,29 @@ const A = {
         fitToLayer(l);
         showToast(`Zoom sur « ${l.name} »`, 'info');
     },
-    deleteLayer(id, e) {
-        e.stopPropagation();
+    async deleteLayer(id, e) {
+        if (e) e.stopPropagation();
         const l = STATE.layers.find((x) => x.id === id); if (!l) return;
-        if (!confirm(`Supprimer la couche « ${l.name} » ?`)) return;
+        let dropTable = false;
+        if (l.kind === 'table' && CONFIG.grist.ready && l.sourceTable) {
+            const choice = await confirmChoice({
+                title: `Supprimer « ${l.name} »`,
+                message: `Couche liée à la table Grist « ${l.sourceTable} ». La retirer d'Atlas (la table reste, ré-importable via 🔗) ou supprimer aussi la table ?`,
+                choices: [
+                    { key: 'atlas', label: "Retirer d'Atlas (garder la table)" },
+                    { key: 'grist', label: 'Supprimer aussi la table de Grist', kind: 'danger' },
+                ],
+            });
+            if (!choice) return;
+            dropTable = choice === 'grist';
+        } else if (!confirm(`Supprimer la couche « ${l.name} » ?`)) return;
         removeLayerGfx(l);
         if (CONFIG.grist.ready && l.gristId) grist.docApi.applyUserActions([['RemoveRecord', 'Maquette_Layers', l.gristId]]).catch(() => {});
+        if (dropTable && l.sourceTable) grist.docApi.applyUserActions([['RemoveTable', l.sourceTable]]).catch((e2) => showToast('Table non supprimée : ' + e2.message, 'warning'));
         STATE.layers = STATE.layers.filter((x) => x.id !== id);
         if (STATE.selectedLayer === id) STATE.selectedLayer = null;
         updateRailBadge(); Models3D.rebuildScene(); renderLayersPanel(STATE.currentModule); renderInspector(); updateLegend();
-        showToast('Couche supprimée', 'success');
+        showToast(dropTable ? 'Couche et table supprimées' : (l.kind === 'table' ? "Couche retirée d'Atlas" : 'Couche supprimée'), 'success');
     },
     saveLayer(id) { const l = STATE.layers.find((x) => x.id === id); if (l) saveLayerToGrist(l); markDirty(); },
 
