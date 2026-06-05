@@ -80,8 +80,26 @@
         .day-cell.today { background: var(--primary); color: white; font-weight: 700; }
         .day-cell.month-start { border-left: 2px solid var(--border); }
 
-        .gantt-body { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+        .gantt-body { display: flex; flex: 1; min-height: 0; overflow: hidden; position: relative; }
         .task-list { width: var(--task-list-width); min-width: var(--task-list-width); overflow-y: auto; border-right: 1px solid var(--border); background: var(--card-bg); }
+
+        /* 06 · États vides & chargement */
+        .tf-overlay { position: absolute; inset: 0; background: var(--card-bg); z-index: 6; display: flex; align-items: center; justify-content: center; padding: 24px; }
+        .tf-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 9px; max-width: 320px; }
+        .tf-empty .tf-empty-glyph { width: 48px; height: 48px; border-radius: 13px; background: var(--bg); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; color: var(--text-light); }
+        .tf-empty .tf-empty-glyph svg { width: 24px; height: 24px; }
+        .tf-empty .tf-empty-title { font-weight: 600; font-size: 0.92rem; color: var(--text); }
+        .tf-empty .tf-empty-sub { font-size: 0.78rem; color: var(--text-light); line-height: 1.5; }
+        .tf-empty .tf-empty-btn { margin-top: 4px; padding: 7px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); color: var(--text); font-size: 0.78rem; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+        .tf-empty .tf-empty-btn:hover { background: var(--primary-light); color: var(--primary); border-color: var(--primary); }
+        .tf-empty .tf-empty-btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .tf-empty .tf-empty-btn.primary:hover { background: var(--primary-dark); }
+        .tf-sk { background: linear-gradient(90deg, var(--bg) 25%, var(--border) 37%, var(--bg) 63%); background-size: 400% 100%; border-radius: 5px; animation: tfsk 1.4s ease infinite; }
+        @keyframes tfsk { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+        .tf-gskel { width: 100%; height: 100%; display: flex; flex-direction: column; }
+        .tf-grow { display: flex; align-items: center; gap: 12px; height: var(--row-height); border-bottom: 1px solid var(--border); }
+        .tf-grow .lbl { width: var(--task-list-width); min-width: var(--task-list-width); display: flex; flex-direction: column; gap: 5px; padding: 0 16px; }
+        .tf-grow .track { flex: 1; padding-right: 16px; }
         .task-row { display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid var(--border); height: var(--row-height); gap: 8px; cursor: pointer; transition: background 0.1s; }
         .task-row:hover { background: var(--bg); }
         .task-row.selected { background: var(--primary-light); }
@@ -406,6 +424,160 @@
         .prereq-badge.review { background: var(--info-light); color: #1e40af; }
         .prereq-badge.done { background: var(--success-light); color: #065f46; }
         .prereq-empty { color: var(--text-muted); font-size: 0.8rem; padding: 8px 0; font-style: italic; }
+
+        /* ═════ TaskFlow v2 — couche d'harmonisation (visuel uniquement, JS intact) ═════ */
+        :root {
+            --primary:#3e5de7; --primary-dark:#2742b8; --primary-light:#e7ecfe;
+            --success:#15a06b; --success-light:#e4f6ee;
+            --warning:#f0982d; --warning-light:#fdf1e1;
+            --danger:#e5484d; --danger-light:#fdeced;
+            --info:#4c7ef3; --info-light:#e9f0fe;
+            --bg:#f5f7fb; --card-bg:#ffffff;
+            --text:#1f2738; --text-muted:#5a6679; --text-light:#8a97ab;
+            --border:#e7ebf2; --border-dark:#d3dae5;
+            --shadow:0 1px 2px rgba(16,24,40,0.05),0 1px 3px rgba(16,24,40,0.04);
+            --shadow-lg:0 18px 48px -12px rgba(16,24,40,0.22),0 6px 16px -8px rgba(16,24,40,0.12);
+            --p-50:#eef2ff; --p-100:#dfe5ff; --surface-2:#eef2f7; --warn-ink:#b9740f;
+        }
+        body { -webkit-font-smoothing: antialiased; font-feature-settings: "cv05" 1, "ss01" 1; }
+        .btn { border-radius: 8px; font-weight: 550; }
+        .btn.primary { box-shadow: 0 1px 2px rgba(62,93,231,.35), 0 4px 12px -3px rgba(62,93,231,.45); }
+        /* Panneau d'édition — pickers raffinés (priorité neutre sauf sélection, statut segmenté) */
+        .priority-pill.p1, .priority-pill.p2, .priority-pill.p3, .priority-pill.p4 { border: 1.5px solid var(--border); background: var(--card-bg); color: var(--text-muted); font-weight: 600; }
+        .priority-pill.p1.selected { background: var(--danger-light); border-color: var(--danger); color: var(--danger); }
+        .priority-pill.p2.selected { background: var(--warning-light); border-color: var(--warning); color: var(--warn-ink); }
+        .priority-pill.p3.selected { background: var(--info-light); border-color: var(--info); color: var(--info); }
+        .priority-pill.p4.selected { background: var(--surface-2); border-color: var(--border-dark); color: var(--text); }
+        .prop-value .status-selector, .status-selector { background: var(--surface-2); padding: 3px; border-radius: 9px; gap: 2px; }
+        .status-pill { border: none; background: transparent; border-radius: 6px; color: var(--text-muted); font-weight: 600; }
+        .status-pill:hover { border: none; background: rgba(127,127,127,.08); }
+        .status-pill.selected { background: var(--card-bg); color: var(--primary); border: none; box-shadow: var(--shadow); }
+        .type-pill { border-radius: 8px; font-weight: 600; white-space: nowrap; }
+        .type-pill.selected { background: var(--primary); border-color: var(--primary); }
+        .form-input, .form-select, .form-textarea, .multi-select-trigger { border-radius: 8px; }
+        .dates-inline { background: var(--surface-2); border-radius: 8px; }
+        .progress-bar-mini { background: var(--surface-2); height: 6px; }
+        .progress-bar-mini-fill { background: var(--primary); }
+        .panel-accent-bar { height: 3px; border-radius: 999px; }
+        .prop-label { color: var(--text-light); font-weight: 600; display: inline-flex; align-items: center; gap: 7px; }
+        .prop-label svg.tf-pic { width: 14px; height: 14px; color: var(--text-light); flex: none; }
+        /* Valeurs compactes (look B) : Statut & Priorité repliés sur leur valeur, dépliables au clic */
+        .prop-value .status-selector.tfc, .prop-value .priority-selector.tfc { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+        .prop-value .status-selector.tfc:not(.tfo) { background: transparent; padding: 0; }
+        .tfc:not(.tfo) .status-pill:not(.selected), .tfc:not(.tfo) .priority-pill:not(.selected) { display: none; }
+        .tfc:not(.tfo) .status-pill.selected { border: 1px solid var(--border); }
+        .tfc:not(.tfo)::after { content: ""; width: 6px; height: 6px; border-right: 1.6px solid var(--text-light); border-bottom: 1.6px solid var(--text-light); transform: translateY(-2px) rotate(45deg); flex: none; }
+        .tfc.tfo { flex-wrap: wrap; }
+        .multi-select-chip, .tag-chip { border-radius: 6px; }
+        .panel-title-edit { font-weight: 700; }
+        /* ════ Panneau · structure A « Sections » (libellés au-dessus, contrôles déployés) ════ */
+        .props-list { border-bottom: none; padding: 0; margin-bottom: 2px; display: flex; flex-direction: column; }
+        .pr-status { order: -2; }
+        .pr-prog { order: -1; }
+        .panel-crumb { display: flex; align-items: center; gap: 7px; font-size: 0.72rem; color: var(--text-muted); font-weight: 600; margin-bottom: 7px; }
+        .panel-crumb .pd { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+        .panel .asg-list { display: flex; flex-direction: column; }
+        .panel .asg { display: flex; align-items: center; gap: 9px; padding: 6px 0; }
+        .panel .asg-ava { width: 25px; height: 25px; border-radius: 50%; color: #fff; font-size: 0.6rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+        .panel .asg .an { font-size: 0.8rem; font-weight: 550; color: var(--text); margin-right: auto; }
+        .panel .asg .ar { font-size: 0.72rem; color: var(--text-muted); }
+        .panel .asg-x { width: 22px; height: 22px; border: none; background: transparent; color: var(--text-light); cursor: pointer; border-radius: 6px; font-size: 1rem; line-height: 1; }
+        .panel .asg-x:hover { background: var(--bg); color: var(--danger); }
+        .panel .addbtn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px dashed var(--border-dark); background: transparent; color: var(--text-muted); font-size: 0.78rem; font-weight: 500; cursor: pointer; margin-top: 4px; }
+        .panel .addbtn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+        .panel .tc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .panel .tc-box { border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; }
+        .panel .tc-box .tcl { font-size: 0.66rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-light); font-weight: 700; display: flex; align-items: center; gap: 5px; }
+        .panel .tc-box .tcv { font-size: 1.15rem; font-weight: 700; color: var(--text); margin-top: 4px; }
+        .panel .tc-box .tcv input { width: 56px; font: inherit; font-size: 1.05rem; font-weight: 700; border: none; background: transparent; color: var(--text); padding: 0; }
+        .panel .tc-box .tcv small { font-size: 0.72rem; color: var(--text-muted); font-weight: 500; }
+        .panel .tc-bar { height: 7px; border-radius: 5px; background: var(--border); overflow: hidden; margin-top: 11px; }
+        .panel .tc-bar > i { display: block; height: 100%; border-radius: 5px; background: var(--primary); }
+        .panel .tc-bar > i.over { background: var(--danger); }
+        .panel .tc-foot { display: flex; justify-content: space-between; margin-top: 7px; font-size: 0.72rem; color: var(--text-muted); }
+        .panel .charge-row { display: flex; align-items: center; gap: 9px; padding: 5px 0; }
+        .panel .charge-row .an { font-size: 0.8rem; color: var(--text); margin-right: auto; }
+        .panel .charge-row input { width: 60px; padding: 5px 7px; border: 1px solid var(--border); border-radius: 7px; font-size: 0.8rem; text-align: right; }
+        .prop-row { flex-direction: column; align-items: stretch; gap: 8px; min-height: 0; padding: 13px 0; }
+        .prop-row + .prop-row { border-top: 1px solid var(--border); }
+        .prop-label { width: auto; padding-top: 0; font-size: 0.66rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-light); font-weight: 700; }
+        .prop-value { padding-top: 0; }
+        .prop-value .status-selector, .prop-value .priority-selector { width: 100%; gap: 4px; flex-wrap: nowrap; }
+        .prop-value .status-pill { flex: 1; text-align: center; padding: 7px 6px; font-size: 0.72rem; }
+        .prop-value .priority-pill { flex: 1; padding: 7px 6px; font-size: 0.7rem; }
+        .prop-value .dates-inline { padding: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .panel-pill-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: middle; }
+        .panel-section-header { background: var(--surface-2); border-color: var(--border); }
+        .panel { box-shadow: var(--shadow-lg); }
+        .toast { background: #1f2738; color: #fff; }
+        .delete-confirm { background: var(--danger-light); }
+
+        /* ═════ Barre d'outils — clusters propres + contrôles segmentés ═════ */
+        .header { flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+        .header-left, .header-center, .header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .header-right { margin-left: auto; }
+        .btn, .filter-btn { white-space: nowrap; }
+        .btn-nav { width: 34px; padding: 0; }
+        .current-period { font-weight: 650; font-size: 0.95rem; letter-spacing: -0.01em; white-space: nowrap; }
+        .view-controls { display: inline-flex; gap: 2px; background: var(--surface-2); padding: 3px; border-radius: 9px; }
+        .view-controls .btn { border: none; background: transparent; box-shadow: none; height: 28px; padding: 0 11px; color: var(--text-muted); }
+        .view-controls .btn:hover { background: rgba(127,127,127,.08); }
+        .view-controls .btn.active { background: var(--card-bg); color: var(--primary); box-shadow: var(--shadow); }
+        .sort-selector select, #colorSelect { height: 34px; border-radius: 8px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); font-size: 0.74rem; padding: 0 8px; }
+        .filter-btn.has-filter, .filter-btn.active { background: var(--p-50); border-color: var(--primary); color: var(--primary); }
+        .icon-btn { width: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+        .filter-count { background: var(--primary); color: #fff; border-radius: 999px; min-width: 17px; height: 17px; padding: 0 4px; font-size: 0.62rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; margin-left: 4px; }
+        .filter-menu.wide { min-width: 234px; max-height: 62vh; overflow-y: auto; padding: 4px; }
+        .fm-group-label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-light); font-weight: 700; padding: 9px 8px 3px; }
+        .fm-group-label.first { padding-top: 4px; }
+        .filter-option.muted { color: var(--text-light); pointer-events: none; }
+        .fm-foot { border-top: 1px solid var(--border); margin-top: 4px; padding: 4px; }
+        .fm-clear { display: block; text-align: center; font-size: 0.74rem; color: var(--primary); cursor: pointer; padding: 6px; border-radius: 6px; font-weight: 550; }
+        .fm-clear:hover { background: var(--p-50); }
+        .filter-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 9px 18px; background: var(--card-bg); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+        .fc-label { font-size: 0.72rem; color: var(--text-light); font-weight: 600; }
+        .fc-chip { display: inline-flex; align-items: center; gap: 7px; height: 27px; padding: 0 5px 0 11px; border-radius: 999px; background: var(--p-50, var(--primary-light)); color: var(--primary); border: 1px solid var(--primary); font-size: 0.73rem; font-weight: 550; white-space: nowrap; }
+        .fc-chip .fc-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+        .fc-chip .fc-x { width: 17px; height: 17px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; opacity: .65; color: inherit; }
+        .fc-chip .fc-x:hover { opacity: 1; background: rgba(62,93,231,.18); }
+        .fc-clear-all { margin-left: auto; font-size: 0.72rem; color: var(--text-muted); cursor: pointer; padding: 5px 9px; border-radius: 7px; font-weight: 550; }
+        .fc-clear-all:hover { background: var(--bg); color: var(--text); }
+
+        /* ═════ Responsive mobile (widget embarqué étroit) ═════ */
+        @media (max-width: 760px) {
+            .header { padding: 8px 12px; }
+            .header h1 { font-size: 1.05rem; }
+            .header-left, .header-center, .header-right { width: 100%; gap: 6px; }
+            .header-right { margin-left: 0; }
+            .current-period { order: -1; flex: 1; }
+            .view-controls { overflow-x: auto; max-width: 100%; }
+            .btn, .filter-btn { min-height: 38px; }
+            :root { --task-list-width: 132px; --cell-width: 26px; }
+            /* Panneau → feuille glissant du bas (bottom-sheet) */
+            .panel { top: auto; bottom: 0; left: 0; right: 0; width: 100%; height: 88%;
+                     transform: translateY(100%); border-left: none; border-top: 1px solid var(--border);
+                     border-radius: 18px 18px 0 0; box-shadow: 0 -12px 40px rgba(0,0,0,.18); }
+            .panel.open { transform: translateY(0); }
+            .gantt-wrapper.panel-open { margin-right: 0; }
+        }
+
+        /* ═════ Dark / Light automatique (selon le navigateur) ═════ */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --primary:#7b8cff; --primary-dark:#6878f5; --primary-light:#22306e;
+                --success:#3fcf8e; --success-light:#0f2e22;
+                --warning:#f5b454; --warning-light:#3a2c14;
+                --danger:#ff6168; --danger-light:#3a1c22;
+                --info:#7b9cff; --info-light:#16264a;
+                --bg:#0f1626; --card-bg:#18223a;
+                --text:#dde3ef; --text-muted:#9aa6bd; --text-light:#6c788f;
+                --border:#283145; --border-dark:#3a455c;
+                --shadow:0 1px 2px rgba(0,0,0,0.4); --shadow-lg:0 24px 60px -16px rgba(0,0,0,0.7);
+                --p-50:#1a2150; --p-100:#22306e; --surface-2:#161f33; --warn-ink:#f5b454;
+            }
+            .demo-badge { color: #1f2738; }
+            .toast { background: #060a14; }
+        }
     </style>
 </head>
 <body>
@@ -443,18 +615,13 @@
             </div>
         </div>
         <div class="header-right">
-            <div class="filter-dropdown" id="filterProject">
-                <div class="filter-btn" onclick="toggleFilterMenu('filterProject')"><span id="filterProjectLabel">Projet ▾</span></div>
-                <div class="filter-menu" id="filterProjectMenu"></div>
+            <div class="filter-dropdown" id="filterGantt">
+                <button class="filter-btn" onclick="toggleFilterMenu('filterGantt')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg> Filtres<span class="filter-count" id="filterCount" style="display:none">0</span></button>
+                <div class="filter-menu wide" id="filterAllMenu"></div>
             </div>
-            <div class="filter-dropdown" id="filterAssignee">
-                <div class="filter-btn" onclick="toggleFilterMenu('filterAssignee')"><span id="filterAssigneeLabel">Assigné ▾</span></div>
-                <div class="filter-menu" id="filterAssigneeMenu"></div>
-            </div>
-            <div class="active-filters" id="activeFilters"></div>
-            <div class="filter-dropdown" id="exportDropdown">
-                <button class="btn" onclick="toggleFilterMenu('exportDropdown')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Exporter ▾</button>
-                <div class="filter-menu" id="exportDropdownMenu">
+            <div class="filter-dropdown" id="moreDropdown">
+                <button class="btn icon-btn" onclick="toggleFilterMenu('moreDropdown')" title="Plus d'actions"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg></button>
+                <div class="filter-menu" id="moreDropdownMenu" style="right:0;left:auto;min-width:200px">
                     <div class="filter-option" onclick="exportPrint()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg> Imprimer / PDF</div>
                     <div class="filter-option" onclick="exportPNG()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg> Image PNG</div>
                 </div>
@@ -463,6 +630,7 @@
         </div>
     </div>
 
+    <div class="filter-chips" id="filterChips" style="display:none"></div>
     <div class="main-content">
         <div class="gantt-wrapper" id="ganttWrapper">
             <div class="gantt-header">
@@ -479,6 +647,7 @@
                 <div class="timeline-scroll" id="timelineScroll">
                     <div class="timeline-grid" id="timelineGrid"></div>
                 </div>
+                <div class="tf-overlay" id="ganttOverlay" style="display:none"></div>
             </div>
             <div class="legend" id="ganttLegend"></div>
         </div>
@@ -516,7 +685,7 @@
             { key: 'progression', label: 'Progression', format: (t) => (t.progression || 0) + '%' },
             { key: 'assignees', label: 'Assignés', format: (t) => { const a = getAssigneesArray(t); return a.length ? a.map(id => getTeamMemberName(id)).filter(Boolean).join(', ') : null; } }
         ];
-        const PRIORITY_COLORS = { 1: '#ef4444', 2: '#f59e0b', 3: '#3b82f6', 4: '#64748b' };
+        const PRIORITY_COLORS = { 1: '#e5484d', 2: '#f0982d', 3: '#4c7ef3', 4: '#8a97ab' };
         // STATUS_COLORS / STATUS_LABELS supprimes : statuts lus dynamiquement via statusCfg (#1)
         // Palette standard TaskFlow (partagée entre widgets) — utilisée pour les pickers Projects/Team/Tasks
         const COLOR_PRESETS = ['#3e5de7','#10b981','#f59e0b','#ef4444','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316','#64748b'];
@@ -1252,58 +1421,35 @@
             }
         }
         function updateFilterMenus() {
-            // GEN-02: Menus avec checkboxes pour sélection multiple
-            document.getElementById('filterProjectMenu').innerHTML = projects.map(p => 
-                `<div class="filter-option" onclick="toggleFilter('project', ${p.id})">
-                    <input type="checkbox" ${filters.project.includes(p.id) ? 'checked' : ''}>
-                    <span class="dot" style="background:${p.couleur || '#6366f1'}"></span>${escapeHtml(p.nom)}
-                </div>`
-            ).join('') || '<div class="filter-option">Aucun projet</div>';
-            document.getElementById('filterAssigneeMenu').innerHTML = team.filter(m => m.actif !== false).map(m => 
-                `<div class="filter-option" onclick="toggleFilter('assignee', ${m.id})">
-                    <input type="checkbox" ${filters.assignee.includes(m.id) ? 'checked' : ''}>
-                    ${escapeHtml(m.nom)}
-                </div>`
-            ).join('') || '<div class="filter-option">Aucun membre</div>';
+            const grp = (label, html, first) => '<div class="fm-group-label'+(first?' first':'')+'">'+label+'</div>'+html;
+            const projHtml = projects.length ? projects.map(p => `<div class="filter-option" onclick="toggleFilter('project', ${p.id})"><input type="checkbox" ${filters.project.includes(p.id)?'checked':''}><span class="dot" style="background:${p.couleur||'#6366f1'}"></span>${escapeHtml(p.nom)}</div>`).join('') : '<div class="filter-option muted">Aucun projet</div>';
+            const prioHtml = [1,2,3,4].map(p => `<div class="filter-option" onclick="toggleFilter('priority', ${p})"><input type="checkbox" ${filters.priority.includes(p)?'checked':''}><span class="dot" style="background:${PRIORITY_COLORS[p]}"></span>${PRIORITY_LABELS[p]}</div>`).join('');
+            const team2 = team.filter(m => m.actif !== false);
+            const assHtml = team2.length ? team2.map(m => `<div class="filter-option" onclick="toggleFilter('assignee', ${m.id})"><input type="checkbox" ${filters.assignee.includes(m.id)?'checked':''}>${escapeHtml(m.nom)}</div>`).join('') : '<div class="filter-option muted">Aucun membre</div>';
+            const total = filters.project.length + filters.priority.length + filters.assignee.length;
+            const menu = document.getElementById('filterAllMenu');
+            if (menu) menu.innerHTML = grp('Projets', projHtml, true) + grp('Priorités', prioHtml) + grp('Assignés', assHtml) + (total ? '<div class="fm-foot"><span class="fm-clear" onclick="clearAllGanttFilters()">Tout effacer</span></div>' : '');
             updateFilterUI();
         }
         function updateFilterUI() {
-            const projBtn = document.querySelector('#filterProject .filter-btn');
-            const assBtn = document.querySelector('#filterAssignee .filter-btn');
-            projBtn.className = 'filter-btn' + (filters.project.length ? ' active' : '');
-            assBtn.className = 'filter-btn' + (filters.assignee.length ? ' active' : '');
-            
-            // Labels des boutons
-            if (filters.project.length === 1) {
-                document.getElementById('filterProjectLabel').textContent = getProjectName(filters.project[0]) + ' ▾';
-            } else if (filters.project.length > 1) {
-                document.getElementById('filterProjectLabel').textContent = filters.project.length + ' projets ▾';
-            } else {
-                document.getElementById('filterProjectLabel').textContent = 'Projet ▾';
-            }
-            
-            if (filters.assignee.length === 1) {
-                const mem = team.find(m => m.id === filters.assignee[0]);
-                document.getElementById('filterAssigneeLabel').textContent = (mem?.nom || 'Assigné') + ' ▾';
-            } else if (filters.assignee.length > 1) {
-                document.getElementById('filterAssigneeLabel').textContent = filters.assignee.length + ' personnes ▾';
-            } else {
-                document.getElementById('filterAssigneeLabel').textContent = 'Assigné ▾';
-            }
-            
-            // Chips actifs
-            const chips = [];
-            filters.project.forEach(id => {
-                const name = getProjectName(id);
-                if (name) chips.push(`<span class="filter-chip">${escapeHtml(name)}<button onclick="toggleFilter('project',${id})">×</button></span>`);
-            });
-            filters.assignee.forEach(id => {
-                const mem = team.find(m => m.id === id);
-                if (mem) chips.push(`<span class="filter-chip">${escapeHtml(mem.nom)}<button onclick="toggleFilter('assignee',${id})">×</button></span>`);
-            });
-            document.getElementById('activeFilters').innerHTML = chips.join('');
+            const total = filters.project.length + filters.priority.length + filters.assignee.length;
+            const cnt = document.getElementById('filterCount'); if (cnt) { cnt.textContent = total; cnt.style.display = total ? 'inline-flex' : 'none'; }
+            const fbtn = document.querySelector('#filterGantt .filter-btn'); if (fbtn) fbtn.classList.toggle('has-filter', total > 0);
+            renderFilterChips();
         }
-        function taskMatchesFilters(t) {
+        function renderFilterChips() {
+            const bar = document.getElementById('filterChips'); if (!bar) return;
+            const X = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+            const chip = (key, val, label, color) => { const dot = color ? `<span class="fc-dot" style="background:${color}"></span>` : ''; return `<span class="fc-chip">${dot}${label}<span class="fc-x" title="Retirer" onclick="toggleFilter('${key}', ${val})">${X}</span></span>`; };
+            const chips = [];
+            filters.project.forEach(id => { const p = projects.find(x=>x.id===id); chips.push(chip('project', id, p?escapeHtml(p.nom):'Projet', p&&p.couleur)); });
+            filters.priority.forEach(v => chips.push(chip('priority', v, PRIORITY_LABELS[v], PRIORITY_COLORS[v])));
+            filters.assignee.forEach(id => { const m = team.find(x=>x.id===id); chips.push(chip('assignee', id, m?escapeHtml(m.nom):'Membre')); });
+            if (!chips.length) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+            bar.style.display = 'flex';
+            bar.innerHTML = '<span class="fc-label">Filtres actifs</span>' + chips.join('') + '<span class="fc-clear-all" onclick="clearAllGanttFilters()">Tout effacer</span>';
+        }
+                function taskMatchesFilters(t) {
             if (filters.project.length && !filters.project.includes(t.projet)) return false;
             if (filters.assignee.length && !getAssigneesArray(t).some(a => filters.assignee.includes(a))) return false;
             if (filters.priority.length && !filters.priority.includes(getTaskPriority(t))) return false;
@@ -1322,8 +1468,34 @@
             renderTimeline();
             renderLegend();
             syncScroll();
+            updateGanttOverlay();
         }
 
+        function renderGanttSkeleton() {
+            const ov = document.getElementById("ganttOverlay"); if (!ov) return;
+            const sk = (w,h) => '<span class="tf-sk" style="display:block;width:'+w+';height:'+h+'px"></span>';
+            const bars = [["30%",8],["42%",30],["26%",20],["18%",46],["34%",6],["24%",16]];
+            let rows = "";
+            for (let i=0;i<6;i++){ const w=bars[i][0], left=bars[i][1];
+                rows += '<div class="tf-grow"><div class="lbl">'+sk("70%",10)+sk("45%",8)+'</div><div class="track"><span class="tf-sk" style="display:block;height:18px;border-radius:9px;margin-left:'+left+'%;width:'+w+'"></span></div></div>'; }
+            ov.innerHTML = '<div class="tf-gskel">'+rows+'</div>';
+            ov.style.display = "flex";
+        }
+        function clearAllGanttFilters() { filters = { project: [], assignee: [], priority: [] }; updateFilterUI(); broadcastFilters(); render(); }
+        function updateGanttOverlay() {
+            const ov = document.getElementById("ganttOverlay"); if (!ov) return;
+            if (currentVisible && currentVisible.length > 0) { ov.style.display = "none"; ov.innerHTML = ""; return; }
+            const hasFilters = filters.project.length || filters.assignee.length || filters.priority.length;
+            const gicon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
+            const search = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+            let html;
+            if (hasFilters) {
+                html = '<div class="tf-empty"><span class="tf-empty-glyph">'+search+'</span><div class="tf-empty-title">Aucune tâche ne correspond</div><div class="tf-empty-sub">Aucune tâche planifiée ne passe les filtres actifs.</div><button class="tf-empty-btn" onclick="clearAllGanttFilters()">Effacer les filtres</button></div>';
+            } else {
+                html = '<div class="tf-empty"><span class="tf-empty-glyph">'+gicon+'</span><div class="tf-empty-title">Aucune tâche à planifier</div><div class="tf-empty-sub">Créez une première tâche avec des dates pour la voir apparaître sur la timeline.</div><button class="tf-empty-btn primary" onclick="openCreatePanel()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Nouvelle tâche</button></div>';
+            }
+            ov.innerHTML = html; ov.style.display = "flex";
+        }
         function renderLegend() {
             const el = document.getElementById('ganttLegend');
             if (!el) return;
@@ -2005,18 +2177,19 @@
                     '<span class="type-pill ' + (data.type === 'jalon' ? 'selected' : '') + '" onclick="updateField(\'type\',\'jalon\')">◆ Jalon</span>' +
                     '<span class="type-pill ' + (data.type === 'reunion' ? 'selected' : '') + '" onclick="updateField(\'type\',\'reunion\')"> Réunion</span>' +
                 '</div>' +
+                (currentProject ? '<div class="panel-crumb"><span class="pd" style="background:' + projectColor + '"></span>' + escapeHtml(currentProject.nom) + '</div>' : '') +
                 '<input type="text" class="panel-title-edit" id="taskTitle" placeholder="' + titlePlaceholder + '" value="' + escapeHtml(data.titre) + '" oninput="updateField(\'titre\', this.value, true)">' +
 
                 '<div class="props-list">' +
-                    '<div class="prop-row"><span class="prop-label">Statut</span><div class="prop-value"><div class="status-selector">' +
-                        (data.type !== 'jalon' ? statusCfg.list : statusCfg.list.filter(s => s.value === statusCfg.firstValue || s.value === statusCfg.terminalValue)).map(s => '<div class="status-pill ' + (data.statut === s.value ? 'selected' : '') + '" data-status="' + escapeHtml(s.value) + '" onclick="updateField(\'statut\', this.dataset.status)">' + escapeHtml(s.label) + '</div>').join('') +
+                    '<div class="prop-row pr-status"><span class="prop-label">Statut</span><div class="prop-value"><div class="status-selector">' +
+                        (data.type !== 'jalon' ? statusCfg.list : statusCfg.list.filter(s => s.value === statusCfg.firstValue || s.value === statusCfg.terminalValue)).map(s => '<div class="status-pill ' + (data.statut === s.value ? 'selected' : '') + '" data-status="' + escapeHtml(s.value) + '" onclick="updateField(\'statut\', this.dataset.status)"><span class="panel-pill-dot" style="background:' + s.fillColor + '"></span>' + escapeHtml(s.label) + '</div>').join('') +
                     '</div></div></div>' +
                     (data.type !== 'reunion' ?
                         '<div class="prop-row"><span class="prop-label">Priorité</span><div class="prop-value"><div class="priority-selector">' +
-                            '<div class="priority-pill p1 ' + (data.priorite == '1' ? 'selected' : '') + '" onclick="updateField(\'priorite\',\'1\')">Critique</div>' +
-                            '<div class="priority-pill p2 ' + (data.priorite == '2' ? 'selected' : '') + '" onclick="updateField(\'priorite\',\'2\')">Haute</div>' +
-                            '<div class="priority-pill p3 ' + (data.priorite == '3' ? 'selected' : '') + '" onclick="updateField(\'priorite\',\'3\')">Moyenne</div>' +
-                            '<div class="priority-pill p4 ' + (data.priorite == '4' ? 'selected' : '') + '" onclick="updateField(\'priorite\',\'4\')">Basse</div>' +
+                            '<div class="priority-pill p1 ' + (data.priorite == '1' ? 'selected' : '') + '" onclick="updateField(\'priorite\',\'1\')"><span class="panel-pill-dot" style="background:' + PRIORITY_COLORS[1] + '"></span>Critique</div>' +
+                            '<div class="priority-pill p2 ' + (data.priorite == '2' ? 'selected' : '') + '" onclick="updateField(\'priorite\',\'2\')"><span class="panel-pill-dot" style="background:' + PRIORITY_COLORS[2] + '"></span>Haute</div>' +
+                            '<div class="priority-pill p3 ' + (data.priorite == '3' ? 'selected' : '') + '" onclick="updateField(\'priorite\',\'3\')"><span class="panel-pill-dot" style="background:' + PRIORITY_COLORS[3] + '"></span>Moyenne</div>' +
+                            '<div class="priority-pill p4 ' + (data.priorite == '4' ? 'selected' : '') + '" onclick="updateField(\'priorite\',\'4\')"><span class="panel-pill-dot" style="background:' + PRIORITY_COLORS[4] + '"></span>Basse</div>' +
                         '</div></div></div>' : '') +
                     '<div class="prop-row"><span class="prop-label">Date' + (data.type === 'jalon' ? '' : 's') + '</span><div class="prop-value">' +
                         (data.type === 'jalon' ?
@@ -2052,14 +2225,21 @@
                             ? '<button class="btn" style="padding:4px 10px;font-size:0.72rem" onclick="updateField(\'couleur\', null)">Réinitialiser</button>'
                             : '<span style="font-size:0.72rem;color:var(--text-muted)">Héritée du mode « ' + colorMode + ' »</span>') +
                     '</div></div></div>' +
-                    '<div class="prop-row"><span class="prop-label">' + assignLabel + '</span><div class="prop-value"><div class="multi-select" id="assigneesSelect"><div class="multi-select-trigger" onclick="toggleMultiSelect(\'assigneesSelect\')"><div class="multi-select-values">' + (assigneesChips || '<span class="multi-select-placeholder">Assigner à...</span>') + '</div><span class="multi-select-arrow">▾</span></div><div class="multi-select-dropdown">' + (assigneesOptions || '<div class="multi-select-empty">Aucun membre</div>') + '</div></div></div></div>' +
-                    (data.assignees.length ?
-                        '<div class="prop-row"><span class="prop-label">Charge</span><div class="prop-value">' +
-                            '<div style="display:flex;flex-direction:column;gap:6px">' + chargeRows + '</div>' +
-                            '<div style="margin-top:6px;font-size:0.78rem;color:var(--text-muted)">Total : <strong>' + chargeTotalH + '</strong> h</div>' +
+                    '<div class="prop-row"><span class="prop-label">' + assignLabel + '</span><div class="prop-value">' +
+                        (data.assignees.length ? '<div class="asg-list">' + data.assignees.map(function(id){ var nm=getTeamMemberName(id)||'?'; var initials=nm.split(' ').filter(Boolean).map(function(w){return w[0];}).slice(0,2).join('').toUpperCase(); var mem=team.find(function(x){return x.id===id;}); return '<div class="asg"><span class="asg-ava" style="background:'+getTeamMemberColor(id)+'">'+escapeHtml(initials)+'</span><span class="an">'+escapeHtml(nm)+'</span>'+(mem&&mem.role?'<span class="ar">'+escapeHtml(mem.role)+'</span>':'')+'<button class="asg-x" title="Retirer" onclick="removeAssignee('+id+')">×</button></div>'; }).join('') + '</div>' : '') +
+                        '<div class="multi-select" id="assigneesSelect"><button class="addbtn" onclick="toggleMultiSelect(\'assigneesSelect\')"><span style="font-size:1rem;line-height:1">+</span> ' + (data.type === 'reunion' ? 'Ajouter un participant' : 'Assigner un membre') + '</button><div class="multi-select-dropdown">' + (assigneesOptions || '<div class="multi-select-empty">Aucun membre</div>') + '</div></div>' +
+                    '</div></div>' +
+                    (data.type === 'tache' ?
+                        '<div class="prop-row"><span class="prop-label">Temps &amp; charge</span><div class="prop-value">' +
+                            '<div class="tc-grid">' +
+                                '<div class="tc-box"><div class="tcl">Estimé</div><div class="tcv"><input type="number" min="0" step="0.5" value="' + (estim || '') + '" placeholder="0" onchange="updateField(\'estimationH\', parseFloat(this.value) || null)"><small>h</small></div></div>' +
+                                '<div class="tc-box"><div class="tcl">Passé</div><div class="tcv"><input type="number" min="0" step="0.5" value="' + (passe || '') + '" placeholder="0" onchange="updateField(\'tempsPasse\', parseFloat(this.value) || null)"><small>h</small></div></div>' +
+                            '</div>' +
+                            (estim > 0 ? '<div class="tc-bar"><i class="' + (timeOver ? 'over' : '') + '" style="width:' + timePercent + '%"></i></div><div class="tc-foot"><span>' + Math.round((passe/estim)*100) + '% consommé</span><span>reste ' + Math.max(estim-passe,0) + ' h</span></div>' : '') +
+                            (data.assignees.length ? '<div style="margin-top:13px"><div class="prop-label" style="margin-bottom:6px">Charge par personne</div>' + data.assignees.map(function(id){ return '<div class="charge-row"><span class="an">'+escapeHtml(getTeamMemberName(id))+'</span><input type="number" min="0" step="0.5" value="'+chargeOf(id)+'" onchange="updateCharge('+id+', this.value)"><span style="font-size:0.75rem;color:var(--text-muted)">h</span></div>'; }).join('') + '<div style="margin-top:6px;font-size:0.78rem;color:var(--text-muted)">Total : <strong>' + chargeTotalH + '</strong> h</div></div>' : '') +
                         '</div></div>' : '') +
                     (data.type === 'tache' ?
-                        '<div class="prop-row"><span class="prop-label">Progression</span><div class="prop-value">' +
+                        '<div class="prop-row pr-prog"><span class="prop-label">Progression</span><div class="prop-value">' +
                             '<div class="progress-inline-wrap"><div class="progress-bar-mini"><div class="progress-bar-mini-fill" id="progressBarFill" style="width:' + data.progression + '%"></div></div><span class="progress-pct-label" id="progressValue">' + data.progression + '%</span></div>' +
                             '<input type="range" class="progress-slider" min="0" max="100" value="' + data.progression + '" oninput="document.getElementById(\'progressValue\').textContent=this.value+\'%\';document.getElementById(\'progressBarFill\').style.width=this.value+\'%\'" onchange="updateField(\'progression\', parseInt(this.value))">' +
                             '<div class="progress-presets">' +
@@ -2103,8 +2283,6 @@
 
                 (data.type !== 'jalon' ?
                     '<div class="panel-section"><div class="panel-section-header"><span class="panel-section-title">Détails</span></div>' +
-                    (data.type !== 'reunion' ?
-                        '<div class="form-group"><div class="time-row"><div class="time-group"><label>Estimé</label><div class="time-input-wrap"><input type="number" min="0" step="0.5" value="' + (estim || '') + '" placeholder="0" onchange="updateField(\'estimationH\', parseFloat(this.value) || null)"><span>h</span></div></div><div class="time-group"><label>Passé</label><div class="time-input-wrap"><input type="number" min="0" step="0.5" value="' + (passe || '') + '" placeholder="0" onchange="updateField(\'tempsPasse\', parseFloat(this.value) || null)"><span>h</span></div></div></div>' + (estim > 0 ? '<div class="time-bar"><div class="time-bar-fill ' + (timeOver ? 'over' : '') + '" style="width:' + timePercent + '%"></div></div>' : '') + '</div>' : '') +
                     '<div class="form-group"><div class="tags-input" onclick="document.getElementById(\'tagInput\').focus()">' + tagsChips + '<input type="text" id="tagInput" placeholder="' + (data.tags.length ? '' : 'Ajouter un tag...') + '" onkeydown="handleTagKeydown(event)"></div></div>' +
                     (data.type !== 'reunion' ?
                         '<div class="form-group"><div class="multi-select" id="depsSelect"><div class="multi-select-trigger" onclick="toggleMultiSelect(\'depsSelect\')"><div class="multi-select-values">' + (depsChips || '<span class="multi-select-placeholder">Dépendances...</span>') + '</div><span class="multi-select-arrow">▾</span></div><div class="multi-select-dropdown">' + (depsOptions || '<div class="multi-select-empty">Aucune</div>') + '</div></div>' + blockedHtml + '</div>' : '') +
@@ -2115,7 +2293,7 @@
 
             if (panelState.isNew) {
                 const canCreate = data.titre && data.titre.trim().length > 0;
-                footer.innerHTML = '<button class="panel-btn success" onclick="createTask()" ' + (!canCreate ? 'disabled' : '') + '>Créer la tâche</button>';
+                footer.innerHTML = '<div style="display:flex;gap:8px;width:100%"><button class="panel-btn" style="flex:0 0 auto;width:auto;padding:10px 16px;background:transparent;color:var(--text-muted);border:1px solid var(--border)" onclick="closePanel()">Annuler</button><button class="panel-btn success" onclick="createTask()" ' + (!canCreate ? 'disabled' : '') + ' style="flex:1;width:auto">Créer la tâche</button></div>';
             } else {
                 footer.innerHTML = '';
             }
@@ -2156,7 +2334,7 @@
             }
 
             if (field === 'titre' && panelState.isNew) {
-                const btn = document.querySelector('.panel-footer .panel-btn');
+                const btn = document.querySelector('.panel-footer .panel-btn.success');
                 if (btn) btn.disabled = !value || !value.trim();
             }
 
@@ -2797,7 +2975,74 @@
         { const s = document.getElementById('colorSelect'); if (s) s.value = colorMode; }
         // Relancer le rendu quand le widget est redimensionné (ex: panel ouvert/fermé, fenêtre)
         new ResizeObserver(() => render()).observe(document.getElementById('timelineScroll'));
+        // Décorateur panneau (look « Propriétés / B ») : icône devant chaque libellé, sans toucher au rendu
+        (function(){
+            var P={
+                statut:'<svg class="tf-pic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+                priorite:'<svg class="tf-pic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V4s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>',
+                date:'<svg class="tf-pic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+                projet:'<svg class="tf-pic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
+                couleur:'<svg class="tf-pic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>',
+                parent:'<svg class="tf-pic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>',
+                assigne:'<svg class="tf-pic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+                charge:'<svg class="tf-pic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+                progression:'<svg class="tf-pic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>'
+            };
+            function pic(txt){ var t=(txt||'').toLowerCase();
+                if(t.indexOf('statut')>=0)return P.statut;
+                if(t.indexOf('priorit')>=0)return P.priorite;
+                if(t.indexOf('date')>=0)return P.date;
+                if(t.indexOf('projet')>=0)return P.projet;
+                if(t.indexOf('couleur')>=0)return P.couleur;
+                if(t.indexOf('parent')>=0)return P.parent;
+                if(t.indexOf('assign')>=0||t.indexOf('particip')>=0||t.indexOf('quipe')>=0)return P.assigne;
+                if(t.indexOf('charge')>=0)return P.charge;
+                if(t.indexOf('progress')>=0)return P.progression;
+                return ''; }
+            function collapse(c){
+                ['status-selector','priority-selector'].forEach(function(cls){
+                    c.querySelectorAll('.prop-value .'+cls+':not(.tfc)').forEach(function(sel){
+                        sel.classList.add('tfc');
+                        sel.addEventListener('click', function(ev){
+                            if(!sel.classList.contains('tfo')){ ev.stopPropagation(); ev.preventDefault();
+                                document.querySelectorAll('.tfc.tfo').forEach(function(o){ o.classList.remove('tfo'); });
+                                sel.classList.add('tfo'); }
+                        }, true);
+                    });
+                });
+            }
+            function deco(){ var c=document.getElementById('panelContent'); if(!c)return;
+                c.querySelectorAll('.prop-label:not([data-dec])').forEach(function(l){ l.setAttribute('data-dec','1'); var s=pic(l.textContent); if(s)l.insertAdjacentHTML('afterbegin',s); });
+                /* collapse(c) désactivé — structure A : sélecteurs déployés */ }
+            var c=document.getElementById('panelContent');
+            if(c){ try{ new MutationObserver(deco).observe(c,{childList:true}); }catch(e){} deco(); }
+            document.addEventListener('click', function(ev){ document.querySelectorAll('.tfc.tfo').forEach(function(o){ if(!o.contains(ev.target)) o.classList.remove('tfo'); }); });
+        })();
+        renderGanttSkeleton();  // 06 · squelette pendant le chargement
+        // Repli auto vers données d'exemple si Grist ne renvoie rien sous 2.8s (aperçu / hors-ligne)
+        setTimeout(function(){ try { if ((typeof tasks==='undefined' || !tasks || !tasks.length) && typeof useDemoMode==='function') useDemoMode(); } catch(e){ console.log(e); } }, 2800);
         initGrist();
     </script>
+<style>
+/* 12 · Barre d'onglets mobile commune + bouton central */
+.mobile-tabbar { display: none; }
+@media (max-width: 760px) {
+  .mobile-tabbar { display: flex; position: fixed; bottom: 0; left: 0; right: 0; height: 62px; background: var(--card-bg); border-top: 1px solid var(--border); z-index: 60; align-items: center; justify-content: space-around; box-shadow: 0 -4px 22px rgba(0,0,0,.10); padding-bottom: env(safe-area-inset-bottom, 0); }
+  .mt-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 0.6rem; color: var(--text-muted); text-decoration: none; font-weight: 600; padding: 7px 0; background: none; border: none; cursor: pointer; }
+  .mt-item svg { width: 21px; height: 21px; }
+  .mt-item.active { color: var(--primary); }
+  .mt-fab { flex: 0 0 auto; width: 52px; height: 52px; border-radius: 50%; background: var(--primary); color: #fff; border: 3px solid var(--card-bg); display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px -4px rgba(62,93,231,.65); margin-top: -22px; cursor: pointer; }
+  .mt-fab svg { width: 26px; height: 26px; }
+  .main-content, .kanban-container, .grid-container, .main, .gantt-wrapper { padding-bottom: 70px !important; }
+  .panel.open { padding-bottom: 62px; }
+}
+</style>
+<nav class="mobile-tabbar">
+  <a href="kanban.html" class="mt-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="11" rx="1"/><rect x="17" y="4" width="4" height="14" rx="1"/></svg>Kanban</a>
+  <a href="gantt.html" class="mt-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="14" y2="7"/><line x1="8" y1="12" x2="19" y2="12"/><line x1="5" y1="17" x2="12" y2="17"/></svg>Gantt</a>
+  <button class="mt-fab" onclick="openCreatePanel()" title="Créer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+  <a href="calendar.html" class="mt-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Agenda</a>
+  <a href="dashboard.html" class="mt-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>Tableau</a>
+</nav>
 </body>
 </html>
