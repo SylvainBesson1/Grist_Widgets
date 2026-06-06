@@ -786,18 +786,22 @@ function openCell(key, period) {
 function closePanel() { S._cellKey = null; S._resId = null; document.getElementById('pGantt').style.display = ''; document.getElementById('overlay').classList.remove('show'); document.getElementById('panel').classList.remove('show'); }
 function refreshCell() { if (S._cellKey != null) openCell(S._cellKey, S._cellPeriod); }
 function setAllocUnit(u) { S.allocUnit = u; refreshCell(); }
-// Allocation éditable : agit sur la charge PROPRE (Tasks.charges) — recalcule la heatmap.
-async function persistCharges(taskId, arr) {
+// Allocation éditable : agit sur Tasks.charges + COHÉRENCE assignés (option A) — recalcule la heatmap.
+const toRefList = (ids) => (ids && ids.length) ? ['L'].concat(ids.map(Number)) : null;
+async function persistTask(taskId, updates) {
   const t = S.tasks.find(x => x.id === taskId); if (!t) return;
-  t.charges = JSON.stringify(arr);
-  if (!S.demo) { try { await grist.docApi.applyUserActions([['UpdateRecord', 'Tasks', taskId, { charges: t.charges }]]); } catch (e) {} }
+  Object.assign(t, updates); // optimiste
+  if (!S.demo) { try { await grist.docApi.applyUserActions([['UpdateRecord', 'Tasks', taskId, updates]]); } catch (e) {} }
   render(); refreshCell();
 }
 function setCharge(taskId, teamId, heures) {
   const t = S.tasks.find(x => x.id === taskId); if (!t) return;
   const arr = TF.parseCharges(t.charges); const i = arr.findIndex(c => c.teamId === teamId);
   if (heures > 0) { if (i >= 0) arr[i].heures = heures; else arr.push({ teamId, heures }); } else if (i >= 0) arr.splice(i, 1);
-  persistCharges(taskId, arr);
+  const updates = { charges: JSON.stringify(arr) };
+  // cohérence : une charge implique d'être assigné
+  if (heures > 0) { const asg = getRefList(t.assignees); if (!asg.includes(Number(teamId))) updates.assignees = toRefList(asg.concat([Number(teamId)])); }
+  persistTask(taskId, updates);
 }
 function reassignCharge(taskId, fromId, toId) {
   if (fromId === toId) return;
@@ -805,7 +809,11 @@ function reassignCharge(taskId, fromId, toId) {
   const arr = TF.parseCharges(t.charges); const fi = arr.findIndex(c => c.teamId === fromId); if (fi < 0) return;
   const hrs = arr[fi].heures; arr.splice(fi, 1);
   const ti = arr.findIndex(c => c.teamId === toId); if (ti >= 0) arr[ti].heures += hrs; else arr.push({ teamId: toId, heures: hrs });
-  persistCharges(taskId, arr);
+  // cohérence assignés (option A) : + toId ; - fromId s'il n'a plus de charge sur la tâche
+  let asg = getRefList(t.assignees);
+  if (!asg.includes(Number(toId))) asg = asg.concat([Number(toId)]);
+  if (!arr.some(c => Number(c.teamId) === Number(fromId))) asg = asg.filter(id => id !== Number(fromId));
+  persistTask(taskId, { charges: JSON.stringify(arr), assignees: toRefList(asg) });
 }
 // Replanification depuis la vue : modifie les dates de la tâche (ré-étale la charge).
 async function setDates(taskId, debut, echeance) {
