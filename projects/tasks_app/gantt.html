@@ -544,7 +544,7 @@
         .fc-clear-all:hover { background: var(--bg); color: var(--text); }
 
         /* ═════ Responsive mobile (widget embarqué étroit) ═════ */
-        @media (max-width: 760px) {
+        @media (max-width: 560px) {
             .header { padding: 8px 12px; }
             .header h1 { font-size: 1.05rem; }
             .header-left, .header-center, .header-right { width: 100%; gap: 6px; }
@@ -3116,13 +3116,14 @@
         renderGanttSkeleton();  // 06 · squelette pendant le chargement
         // Repli auto vers données d'exemple si Grist ne renvoie rien sous 2.8s (aperçu / hors-ligne)
         setTimeout(function(){ try { if ((typeof tasks==='undefined' || !tasks || !tasks.length) && typeof useDemoMode==='function') useDemoMode(); } catch(e){ console.log(e); } }, 2800);
+        try { if (new URLSearchParams(location.search).has('nav')) document.body.classList.add('suite-nav'); } catch (e) {}
         initGrist();
     </script>
 <style>
 /* 12 · Barre d'onglets mobile commune + bouton central */
 .mobile-tabbar { display: none; }
-@media (max-width: 760px) {
-  .mobile-tabbar { display: flex; position: fixed; bottom: 0; left: 0; right: 0; height: 62px; background: var(--card-bg); border-top: 1px solid var(--border); z-index: 60; align-items: center; justify-content: space-around; box-shadow: 0 -4px 22px rgba(0,0,0,.10); padding-bottom: env(safe-area-inset-bottom, 0); }
+@media (max-width: 560px) {
+  body.suite-nav .mobile-tabbar { display: flex; position: fixed; bottom: 0; left: 0; right: 0; height: 62px; background: var(--card-bg); border-top: 1px solid var(--border); z-index: 60; align-items: center; justify-content: space-around; box-shadow: 0 -4px 22px rgba(0,0,0,.10); padding-bottom: env(safe-area-inset-bottom, 0); }
   .mt-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 0.6rem; color: var(--text-muted); text-decoration: none; font-weight: 600; padding: 7px 0; background: none; border: none; cursor: pointer; }
   .mt-item svg { width: 21px; height: 21px; }
   .mt-item.active { color: var(--primary); }
