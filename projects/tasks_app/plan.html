@@ -198,6 +198,14 @@ tfoot td.colres{background:var(--surface-2);z-index:2}
 .tl-sec .gdot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .tl-grp.tl-ind { padding-left: 26px; }
 .tl-row.tl-ind .tl-lbl { padding-left: 42px; }
+.pbanner { padding: 9px 11px; border-radius: 8px; font-size: .8rem; font-weight: 600; margin-bottom: 9px; display: flex; gap: 7px; align-items: center; }
+.pbanner b { font-weight: 800; }
+.pbanner.over { background: rgba(229,72,77,.15); color: #ff9094; }
+.pbanner.warn { background: rgba(245,158,11,.15); color: #f3b35e; }
+.pbanner.ok { background: rgba(59,130,246,.14); color: #93b6ff; }
+.pbanner.under { background: rgba(21,160,107,.14); color: #54d2a4; }
+.phint { font-size: .75rem; color: var(--text-muted, #94a3b8); margin-bottom: 12px; line-height: 1.55; }
+.phint b { color: var(--text, #cbd5e1); font-weight: 600; }
 </style>
 <div class="tlpanel" id="tlPanel">
   <div class="tlhead"><div><strong>Timeline par personne</strong><span class="tlrange" id="tlRange"></span></div><button class="x" id="tlClose">×</button></div>
@@ -889,6 +897,20 @@ function tasksInCell(key, period) {
   return out.sort((a, b) => b.slice - a.slice);
 }
 
+// Disponibilité par membre sur une période (charge TOTALE tous projets vs capacité) → guide la réaffectation.
+function memberAvail(period) {
+  const pr = TF.periodRange(TF.shiftPeriods(new Date(), S.granularity, S.offset), S.granularity, S.horizon);
+  const ss = periodStarts(TF.shiftPeriods(new Date(), S.granularity, S.offset), S.granularity, S.horizon);
+  const pi = pr.indexOf(period); const pstart = pi >= 0 ? ss[pi] : new Date();
+  const mat = TF.chargeMatrix(planTasks(), (t, c) => String(c.teamId), S.granularity, effCharges, S.workdays);
+  const out = {};
+  for (const m of activeTeam()) {
+    const load = (mat[String(m.id)] || {})[period] || 0;
+    const cap = capPeriod(capOf(m)) * (1 - indispoFrac(m, pstart));
+    out[m.id] = { load: r1(load), cap: r1(cap), free: r1(Math.max(cap - load, 0)) };
+  }
+  return out;
+}
 function openCell(key, period) {
   S._cellKey = key; S._cellPeriod = period; S._resId = null;
   document.getElementById('pGantt').style.display = '';
@@ -905,18 +927,37 @@ function openCell(key, period) {
   const capTxt = capP > 0 ? ' · capacité ' + Math.round(capP) + 'h (' + Math.round(tot / capP * 100) + '%)' : '';
   document.getElementById('pSub').textContent = tot + (S.mode === 'realise' ? ' h réalisées' : ' h planifiées') + capTxt + (editable ? ' · allocation éditable' : '');
   const capWk = editable ? capOf(teamById(tid)) : 0;
+  const av = editable ? memberAvail(period) : {};
+  const per = S.granularity === 'month' ? 'période' : 'sem.';
+  // bandeau d'état = le "point à traiter", lisible d'un coup d'œil
+  let banner = '';
+  if (capP > 0) {
+    const r = tot / capP;
+    if (r > 1) banner = '<div class="pbanner over">⚠ Surcharge — <b>+' + r1(tot - capP) + ' h</b> au-dessus de la capacité (' + Math.round(capP) + ' h)</div>';
+    else if (r > 0.85) banner = '<div class="pbanner warn">● Proche de la limite — ' + Math.round(r * 100) + '% · marge ' + r1(capP - tot) + ' h</div>';
+    else if (tot > 0) banner = '<div class="pbanner ok">✓ Charge maîtrisée — ' + Math.round(r * 100) + '% · marge ' + r1(capP - tot) + ' h</div>';
+    else banner = '<div class="pbanner under">○ Aucune charge — ' + Math.round(capP) + ' h disponibles</div>';
+  }
+  // guidage : quoi faire + où est la marge dans l'équipe (réaffectation éclairée)
+  let hint = '';
+  if (editable) {
+    const free = others.filter(m => av[m.id] && av[m.id].free > 0.5).sort((a, b) => av[b.id].free - av[a.id].free).slice(0, 3);
+    const freeTxt = free.length ? free.map(m => '<b>' + esc(m.nom.split(' ')[0]) + ' ' + av[m.id].free + ' h</b>').join(', ') : 'aucune marge dans l’équipe';
+    hint = '<div class="phint">' + (tot > capP && capP > 0 ? 'Résorber : réduire les heures, replanifier les dates, ou réaffecter (⇄). ' : 'Ajustez heures, dates ou assignation. ') + 'Marge cette ' + per + ' : ' + freeTxt + '.</div>';
+  }
+  const sorted = items.slice().sort((a, b) => b.slice - a.slice); // la plus grosse contribution en premier
   const unitToggle = editable ? '<div class="unitbar">Allouer en <button class="' + (S.allocUnit === 'h' ? 'on' : '') + '" onclick="setAllocUnit(\'h\')">heures</button><button class="' + (S.allocUnit === 'pct' ? 'on' : '') + '" onclick="setAllocUnit(\'pct\')">% capacité</button></div>' : '';
-  document.getElementById('pBody').innerHTML = unitToggle + (items.length ? items.map(i => {
+  document.getElementById('pBody').innerHTML = banner + hint + unitToggle + (sorted.length ? sorted.map(i => {
     const p = projById(i.task.projet);
-    const sliceTxt = (p ? esc(p.nom) : 'Sans projet') + ' · ' + i.slice + ' h cette ' + (S.granularity === 'month' ? 'période' : 'sem.');
+    const sliceTxt = (p ? esc(p.nom) : 'Sans projet') + ' · ' + i.slice + ' h cette ' + per;
     const usePct = editable && S.allocUnit === 'pct' && capWk > 0;
     const wks = taskWeeks(i.task);
     const val = usePct ? Math.round(i.total / (capWk * wks) * 100) : i.total;
     const conv = usePct ? '((parseFloat(this.value)||0)/100*' + capWk + '*' + wks.toFixed(3) + ')' : '(parseFloat(this.value)||0)';
     const right = editable
-      ? '<div class="tkedit"><input type="number" min="0" step="' + (usePct ? 5 : 0.5) + '" value="' + val + '" title="Allocation ' + (usePct ? '(% de la capacité sur la durée)' : '(heures)') + '" onchange="setCharge(' + i.task.id + ',' + tid + ',' + conv + ')"><span class="u">' + (usePct ? '%' : 'h') + '</span><select title="Réaffecter à un autre membre" onchange="if(this.value)reassignCharge(' + i.task.id + ',' + tid + ',parseInt(this.value))"><option value="">⇄</option>' + others.map(m => '<option value="' + m.id + '">→ ' + esc(m.nom) + '</option>').join('') + '</select></div>'
+      ? '<div class="tkedit"><input type="number" min="0" step="' + (usePct ? 5 : 0.5) + '" value="' + val + '" title="Allocation ' + (usePct ? '(% de la capacité sur la durée)' : '(heures)') + '" onchange="setCharge(' + i.task.id + ',' + tid + ',' + conv + ')"><span class="u">' + (usePct ? '%' : 'h') + '</span><select title="Réaffecter à un membre (sa marge est indiquée)" onchange="if(this.value)reassignCharge(' + i.task.id + ',' + tid + ',parseInt(this.value))"><option value="">⇄ Réaffecter</option>' + others.map(m => { const fr = av[m.id] ? av[m.id].free : null; return '<option value="' + m.id + '">→ ' + esc(m.nom) + (fr != null ? ' (' + fr + ' h libres)' : '') + '</option>'; }).join('') + '</select></div>'
       : '<div class="th">' + i.total + ' h</div>';
-    const dates = editable ? '<div class="tkdates"><span class="dl">📅</span><input type="date" value="' + gToInput(i.task.dateDebut) + '" title="Début" onchange="setDates(' + i.task.id + ',this.value,null)"><span>→</span><input type="date" value="' + gToInput(i.task.dateEcheance) + '" title="Échéance" onchange="setDates(' + i.task.id + ',null,this.value)"></div>' : '';
+    const dates = editable ? '<div class="tkdates"><span class="dl">📅 Dates</span><input type="date" value="' + gToInput(i.task.dateDebut) + '" title="Début" onchange="setDates(' + i.task.id + ',this.value,null)"><span>→</span><input type="date" value="' + gToInput(i.task.dateEcheance) + '" title="Échéance" onchange="setDates(' + i.task.id + ',null,this.value)"></div>' : '';
     return '<div class="tk"><div class="tkmain"><span class="pdot" style="background:' + (p ? p.couleur : '#64748b') + '"></span><div class="tinfo"><div class="tt">' + esc(i.task.titre) + '</div><div class="tm">' + sliceTxt + '</div></div>' + right + '</div>' + dates + '</div>';
   }).join('') : '<div style="color:var(--text-muted);font-size:.82rem">Aucune tâche ' + (S.mode === 'realise' ? 'réalisée' : 'planifiée') + ' sur cette période.</div>');
   document.getElementById('pGantt').onclick = () => openInGantt(key);
