@@ -89,6 +89,12 @@ tfoot td.colres{background:var(--surface-2);z-index:2}
 .x{background:transparent;border:0;color:var(--text-muted);font-size:1.3rem;cursor:pointer;line-height:1}
 .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%) translateY(20px);background:var(--surface-3);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:8px;font-size:0.8rem;opacity:0;pointer-events:none;transition:.2s;z-index:30;max-width:80vw;text-align:center}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#cfOverlay{z-index:30}
+.cfmodal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.96);background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;z-index:31;width:380px;max-width:90vw;opacity:0;pointer-events:none;transition:.18s}
+.cfmodal.show{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
+.cfmodal h3{font-size:1rem;margin-bottom:8px}
+.cfmodal p{font-size:0.84rem;color:var(--text-muted);margin-bottom:16px;line-height:1.45;white-space:pre-line}
+.cfmodal .cfbtns{display:flex;justify-content:flex-end;gap:8px}
 .colres.clk{cursor:pointer}
 .colres.clk:hover{background:var(--surface-3)}
 .cell.redu{background:repeating-linear-gradient(45deg,transparent,transparent 5px,rgba(71,85,105,.28) 5px,rgba(71,85,105,.28) 10px)}
@@ -131,7 +137,8 @@ tfoot td.colres{background:var(--surface-2);z-index:2}
     <label class="chk"><input type="checkbox" id="chkDone"> Inclure terminé</label>
     <label class="chk" title="Estimer la charge des tâches sans charge à partir de leur estimation ÷ nb assignés"><input type="checkbox" id="chkDerive"> Estimer</label>
     <label class="chk" title="Étaler la charge sur les jours ouvrés (lun-ven) seulement"><input type="checkbox" id="chkWorkdays"> Jours ouvrés</label>
-    <button class="btn" id="btnExport">Export</button>
+    <button class="btn" id="btnInit" title="Initialiser la charge des tâches sans charge depuis estimationH ÷ nb assignés">⚙ Init. charges</button>
+    <button class="btn" id="btnExport" title="Exporter le plan en CSV (COPIL)">⬇ CSV</button>
   </div>
   <div class="alerts" id="alerts"></div>
   <div class="gridwrap" id="gridwrap"><div class="empty"><div class="ic">▦</div><div>Chargement…</div></div></div>
@@ -153,6 +160,12 @@ tfoot td.colres{background:var(--surface-2);z-index:2}
   <div class="pf"><button class="btn" id="pGantt" style="width:100%">↗ Ouvrir dans le Gantt</button></div>
 </div>
 <div id="toast" class="toast"></div>
+<div class="overlay" id="cfOverlay"></div>
+<div class="cfmodal" id="cfModal">
+  <h3 id="cfTitle"></h3>
+  <p id="cfMsg"></p>
+  <div class="cfbtns"><button class="btn ghost" id="cfNo">Annuler</button><button class="btn" id="cfYes" style="background:var(--primary);border-color:var(--primary);color:#fff">Confirmer</button></div>
+</div>
 
 <script>
 "use strict";
@@ -490,7 +503,7 @@ const S = {
   tasks: [], team: [], projects: [],
   granularity: 'week', offset: 0, horizon: 12,
   groupBy: 'person', unit: 'pct', includeDone: false, derive: false, mode: 'prevu', workdays: false, allocUnit: 'h',
-  demo: false
+  demo: false, extFilters: null
 };
 let statusCfg = TF.buildStatusConfig(TF.DEFAULT_STATUSES, 'default'); // #1 : statuts dynamiques — alimenté par TF.loadStatusConfig en Grist (terminal/libellés depuis les vrais choix)
 
@@ -513,7 +526,16 @@ function periodStarts(start, g, count) {
 function subLabel(d) { return S.granularity === 'month' ? '' : (d.getUTCDate() + ' ' + MOIS[d.getUTCMonth()]); }
 const r1 = (n) => Math.round(n * 10) / 10;
 
-function planTasks() { return S.includeDone ? S.tasks : S.tasks.filter(t => !isTerminal(t)); }
+function planTasks() {
+  let ts = S.includeDone ? S.tasks : S.tasks.filter(t => !isTerminal(t));
+  const f = S.extFilters;  // filtres partagés diffusés par la suite (onOptions)
+  if (f) {
+    if (f.project != null && f.project !== '') ts = ts.filter(t => String(t.projet) === String(f.project));
+    if (Array.isArray(f.assignee) && f.assignee.length) ts = ts.filter(t => getRefList(t.assignees).some(a => f.assignee.map(Number).includes(a)));
+    if (Array.isArray(f.statut) && f.statut.length) ts = ts.filter(t => f.statut.includes(t.statut));
+  }
+  return ts;
+}
 // Charges effectives : réelles, ou dérivées de estimationH ÷ nb assignés si l'option est active.
 function effCharges(t) {
   const c = TF.parseCharges(t.charges);
@@ -526,7 +548,11 @@ function realCharges(t) {
   const cs = effCharges(t); const tot = cs.reduce((s, c) => s + c.heures, 0); const tp = Number(t.tempsPasse) || 0;
   if (!tot || !tp) return []; return cs.map(c => ({ teamId: c.teamId, heures: c.heures * tp / tot }));
 }
-function chargesFor(t) { return S.mode === 'realise' ? realCharges(t) : effCharges(t); }
+function chargesFor(t) {
+  if (S.mode === 'realise') return realCharges(t);
+  if (S.mode === 'reste') { const rm = {}; for (const c of realCharges(t)) rm[c.teamId] = c.heures; return effCharges(t).map(c => ({ teamId: c.teamId, heures: Math.max(c.heures - (rm[c.teamId] || 0), 0) })).filter(c => c.heures > 0); }
+  return effCharges(t);
+}
 const taskWeeks = (t) => Math.max((Math.floor(t.dateEcheance * 1000 / 86400000) - Math.floor(t.dateDebut * 1000 / 86400000) + 1) / 7, 1 / 7);
 const gToInput = (ts) => ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '';
 const inputToG = (s) => s ? Math.floor(Date.parse(s + 'T00:00:00Z') / 1000) : null;
@@ -585,7 +611,7 @@ function cellColor(h, cap) {
 function render() {
   // segments
   renderSeg('segGran', [['week', 'Sem'], ['month', 'Mois']], S.granularity, v => { S.granularity = v; S.offset = 0; render(); });
-  renderSeg('segMode', [['prevu', 'Prévu'], ['realise', 'Réalisé']], S.mode, v => { S.mode = v; render(); });
+  renderSeg('segMode', [['prevu', 'Prévu'], ['realise', 'Réalisé'], ['reste', 'Reste']], S.mode, v => { S.mode = v; render(); });
   renderSeg('segUnit', [['pct', '%'], ['hours', 'h']], S.unit, v => { S.unit = v; render(); });
   document.getElementById('selGroup').value = S.groupBy;
   document.getElementById('chkDone').checked = S.includeDone;
@@ -823,6 +849,41 @@ function removeIndispo(memberId, idx) {
   persistIndispos(memberId, arr);
 }
 
+// Modale de confirmation INTERNE (jamais de popup navigateur).
+function confirmModal(title, msg) {
+  return new Promise(resolve => {
+    document.getElementById('cfTitle').textContent = title;
+    document.getElementById('cfMsg').textContent = msg;
+    document.getElementById('cfOverlay').classList.add('show');
+    document.getElementById('cfModal').classList.add('show');
+    const done = (v) => { document.getElementById('cfOverlay').classList.remove('show'); document.getElementById('cfModal').classList.remove('show'); resolve(v); };
+    document.getElementById('cfYes').onclick = () => done(true);
+    document.getElementById('cfNo').onclick = () => done(false);
+    document.getElementById('cfOverlay').onclick = () => done(false);
+  });
+}
+// Charge par défaut : pour les tâches sans charge mais avec estimation + assignés, écrit estimationH ÷ nb assignés.
+async function initCharges() {
+  const targets = S.tasks.filter(t => !TF.parseCharges(t.charges).length && Number(t.estimationH) > 0 && getRefList(t.assignees).length);
+  if (!targets.length) { toast('Aucune tâche à initialiser (estimation + assignés requis, charge vide).'); return; }
+  if (!(await confirmModal('Initialiser la charge', targets.length + ' tâche(s) sans charge mais avec estimation + assignés.\nRépartir l’estimation ÷ nb assignés ?'))) return;
+  const actions = [];
+  for (const t of targets) { const asg = getRefList(t.assignees); const per = Math.round(Number(t.estimationH) / asg.length * 10) / 10; const j = JSON.stringify(asg.map(id => ({ teamId: id, heures: per }))); t.charges = j; actions.push(['UpdateRecord', 'Tasks', t.id, { charges: j }]); }
+  if (!S.demo) { try { await grist.docApi.applyUserActions(actions); } catch (e) {} }
+  render(); toast(targets.length + ' tâche(s) initialisée(s).');
+}
+// Export CSV (COPIL) de la grille courante.
+function exportCSV() {
+  const periods = TF.periodRange(TF.shiftPeriods(new Date(), S.granularity, S.offset), S.granularity, S.horizon);
+  const matrix = TF.chargeMatrix(planTasks(), keyFn(), S.granularity, chargesFor, S.workdays);
+  const rows = buildRows();
+  const lines = [['Ressource', 'Capacité/sem'].concat(periods.map(plabel)).concat(['Total']).join(';')];
+  for (const row of rows) { const cells = matrix[row.key] || {}; let tot = 0; const vals = periods.map(p => { const v = r1(cells[p] || 0); tot += v; return String(v).replace('.', ','); }); lines.push(['"' + String(row.label).replace(/"/g, '""') + '"', row.cap > 0 ? Math.round(row.cap) : ''].concat(vals).concat([String(r1(tot)).replace('.', ',')]).join(';')); }
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'plan-de-charge-' + S.mode + '.csv'; a.click();
+  toast('Export CSV généré.');
+}
+
 // ============================================================================
 // Données : Grist + démo
 // ============================================================================
@@ -834,7 +895,8 @@ function bindToolbar() {
   document.getElementById('chkDone').onchange = (e) => { S.includeDone = e.target.checked; render(); };
   document.getElementById('chkDerive').onchange = (e) => { S.derive = e.target.checked; render(); };
   document.getElementById('chkWorkdays').onchange = (e) => { S.workdays = e.target.checked; render(); };
-  document.getElementById('btnExport').onclick = () => window.print();
+  document.getElementById('btnExport').onclick = exportCSV;
+  document.getElementById('btnInit').onclick = initCharges;
   document.getElementById('pClose').onclick = closePanel;
   document.getElementById('overlay').onclick = closePanel;
 }
@@ -899,6 +961,7 @@ if (window.self === window.top) {
   try {
     grist.ready({ requiredAccess: 'full' });
     grist.onRecords(() => loadGrist());
+    try { grist.onOptions((o) => { S.extFilters = (o && o.filters) || null; render(); }); } catch (e) {}
     loadGrist();
     setTimeout(() => { if (!S.team.length && !S.tasks.length) loadDemo(); }, 2500); // filet
   } catch (e) {
