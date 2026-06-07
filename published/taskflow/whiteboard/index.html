@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Whiteboard Collaboratif — Widget Grist</title>
+<title>TaskFlow — Whiteboard</title>
 <!--
  
 -->
@@ -21,6 +21,7 @@
   --g625: #64748b; --g425: #94a3b8;
   --g200: #e2e8f0; --g100: #f1f5f9; --g50: #f8fafc;
   --white: #fff;
+  --ink: #1e293b; /* encre des notes/cartes — surfaces toujours claires, invariante au thème */
   --canvas-bg: #f8fafc;
   --grid-c: #e2e8f0; --grid-maj: #cbd5e1;
   --shadow-s: 0 1px 3px rgba(0,0,0,.08);
@@ -28,6 +29,24 @@
   --shadow-l: 0 8px 32px rgba(0,0,0,.16);
   --r-sm: 6px; --r-md: 8px; --r-lg: 12px;
   --tr: 150ms ease;
+}
+/* Dark mode auto (aligné sur les autres widgets TaskFlow) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fr-blue: #6b7cff;
+    --fr-blue-lt: #232f52;
+    --fr-blue-hvr: #8b9bff;
+    --fr-red: #f87171;
+    --g1000: #e2e8f0; --g900: #d3dbe7; --g800: #b4c0d4;
+    --g625: #94a3b8; --g425: #6b7892;
+    --g200: #2a3550; --g100: #232c44; --g50: #161d30;
+    --white: #1a2236;
+    --canvas-bg: #0f1525;
+    --grid-c: #1c2438; --grid-maj: #2a3550;
+    --shadow-s: 0 1px 3px rgba(0,0,0,.4);
+    --shadow-m: 0 4px 16px rgba(0,0,0,.5);
+    --shadow-l: 0 8px 32px rgba(0,0,0,.6);
+  }
 }
 *{margin:0;padding:0;box-sizing:border-box}
 body{
@@ -135,7 +154,7 @@ body{
 .sf{fill:rgba(0,0,0,.06);stroke:rgba(0,0,0,.08);stroke-width:.5;pointer-events:none}
 .st{
   font-family:inherit;font-size:13px;line-height:1.3;
-  color:var(--g1000);overflow:hidden;word-wrap:break-word;
+  color:var(--ink);overflow:hidden;word-wrap:break-word;
   padding:8px 10px 4px;outline:none;cursor:default;
 }
 .st[contenteditable=true]{cursor:text;user-select:text;-webkit-user-select:text}
@@ -376,7 +395,7 @@ body{
   border-radius:var(--r-sm);font-size:12px;cursor:pointer;transition:background var(--tr);color:var(--g800);font-family:inherit}
 .tp-btn:hover:not(:disabled){background:var(--g100)}
 .tp-btn:disabled{opacity:.4;cursor:not-allowed}
-.tp-btn.tp-active{background:#eff6ff;color:var(--fr-blue);font-weight:600}
+.tp-btn.tp-active{background:var(--fr-blue-lt);color:var(--fr-blue);font-weight:600}
 
 /* ── SELECTION RECT ── */
 .sel-rect{fill:rgba(79,70,229,.06);stroke:var(--fr-blue);stroke-width:1;stroke-dasharray:4 2}
@@ -493,10 +512,9 @@ body{
 <div id="cc">
 
  <div id="boot">
-  <h1>Whiteboard Collaboratif</h1>
-  <p>Initialisation de la connexion Grist et vérification de la table de données…</p>
   <div class="boot-spinner" id="boot-spin"></div>
-  <div class="boot-log" id="boot-log"></div>
+  <p id="boot-msg" style="display:none"></p>
+  <div class="boot-log" id="boot-log" style="display:none"></div>
   <div class="boot-actions" id="boot-acts" style="display:none"></div>
  </div>
 
@@ -671,6 +689,335 @@ body{
      ═══════════════════════════════════════════════════ -->
 <script>
 "use strict";
+
+// ═══════════════════════════════════════════════════════
+// MODULE COMMUN TASKFLOW (genere — voir projects/tasks_app/core/taskflow-core.js)
+// <taskflow-core> -- GENERE par scripts/build-taskflow.js, NE PAS EDITER ICI
+/* ============================================================================
+ * taskflow-core.js — Module commun aux widgets TaskFlow
+ * ----------------------------------------------------------------------------
+ * SOURCE UNIQUE. Inline dans chaque widget par scripts/build-taskflow.js entre
+ * les marqueurs de generation prevus a cet effet.
+ * NE PAS editer la copie inlinee dans les .html : editer CE fichier puis lancer
+ *   npm run build:taskflow
+ *
+ * Expose un objet `TF` (namespace) pour ne jamais entrer en collision avec les
+ * helpers locaux existants des widgets. Toutes les fonctions qui ecrivent dans
+ * Grist sont DEFENSIVES : en cas d'echec elles n'interrompent jamais le widget
+ * (au pire, comportement actuel inchange).
+ * ========================================================================== */
+const TF = (function () {
+    'use strict';
+
+    /* ----- Statuts ---------------------------------------------------------
+     * Convention : l'ORDRE fait foi. Le DERNIER statut de la liste est l'etat
+     * terminal ("termine") utilise par la logique de completion des widgets.
+     * Les statuts reels proviennent de la colonne Choice `statut` (editable par
+     * l'utilisateur dans Grist). DEFAULT_STATUSES n'est qu'un repli.
+     * --------------------------------------------------------------------- */
+    const DEFAULT_STATUSES = [
+        { value: 'todo',       label: 'À faire',  fillColor: '#94a3b8', textColor: '#ffffff' },
+        { value: 'inprogress', label: 'En cours', fillColor: '#f59e0b', textColor: '#ffffff' },
+        { value: 'review',     label: 'En revue', fillColor: '#3b82f6', textColor: '#ffffff' },
+        { value: 'done',       label: 'Terminé',  fillColor: '#10b981', textColor: '#ffffff' }
+    ];
+    // Repli libelle + couleur pour les CODES par defaut. Permet d'afficher un libelle
+    // FR (et la bonne couleur) meme quand la colonne Choice stocke le code brut
+    // (todo/inprogress/...). Une valeur renommee par l'utilisateur garde SON libelle.
+    const DEFAULTS_BY_VALUE = {};
+    for (var _i = 0; _i < DEFAULT_STATUSES.length; _i++) DEFAULTS_BY_VALUE[DEFAULT_STATUSES[_i].value] = DEFAULT_STATUSES[_i];
+
+    // Convertit un tableau Grist colonnaire en tableau d'objets lignes.
+    function columnarToRows(data) {
+        if (!data || Array.isArray(data)) return data || [];
+        const cols = Object.keys(data);
+        if (!cols.length) return [];
+        const n = (data[cols[0]] && data[cols[0]].length) || 0;
+        const rows = [];
+        for (let i = 0; i < n; i++) {
+            const rec = {};
+            for (const k of cols) rec[k] = data[k][i];
+            rows.push(rec);
+        }
+        return rows;
+    }
+
+    // Resout le rowId d'une table depuis son tableId via _grist_Tables.
+    async function tableRowId(grist, tableId) {
+        const meta = columnarToRows(await grist.docApi.fetchTable('_grist_Tables'));
+        const row = meta.find(r => r.tableId === tableId);
+        return row ? row.id : null;
+    }
+
+    // Construit une config de statuts normalisee depuis une liste brute.
+    function buildStatusConfig(list, source) {
+        const clean = (list || []).filter(s => s && s.value != null).map(s => {
+            const v = String(s.value);
+            const d = DEFAULTS_BY_VALUE[v];
+            const hasExplicitLabel = s.label != null && s.label !== '' && String(s.label) !== v;
+            return {
+                value: v,
+                label: hasExplicitLabel ? String(s.label) : (d ? d.label : v),
+                fillColor: s.fillColor || (d ? d.fillColor : '#94a3b8'),
+                textColor: s.textColor || (d ? d.textColor : '#ffffff')
+            };
+        });
+        const final = clean.length ? clean : DEFAULT_STATUSES.slice();
+        const byValue = {};
+        for (const s of final) byValue[s.value] = s;
+        return {
+            list: final,
+            byValue,
+            values: final.map(s => s.value),
+            terminalValue: final[final.length - 1].value, // convention "dernier = termine"
+            firstValue: final[0].value,
+            source: clean.length ? source : 'default'
+        };
+    }
+
+    /* Lit les statuts (libelles + couleurs + ordre) depuis la colonne Choice
+     * indiquee, via les metadonnees Grist. Repli en cascade :
+     *   1. options de la colonne Choice (cas ideal)
+     *   2. valeurs distinctes presentes dans les donnees (colonne Text)
+     *   3. DEFAULT_STATUSES
+     * Ne jette jamais : retourne toujours une config exploitable.
+     */
+    async function loadStatusConfig(grist, table, column, distinctFallback) {
+        try {
+            const tid = await tableRowId(grist, table);
+            if (tid != null) {
+                const cols = columnarToRows(await grist.docApi.fetchTable('_grist_Tables_column'));
+                const col = cols.find(c => c.parentId === tid && c.colId === column);
+                if (col && col.widgetOptions) {
+                    let opt = {};
+                    try { opt = JSON.parse(col.widgetOptions) || {}; } catch (e) { opt = {}; }
+                    const choices = Array.isArray(opt.choices) ? opt.choices : [];
+                    const co = opt.choiceOptions || {};
+                    if (choices.length) {
+                        return buildStatusConfig(choices.map(ch => ({
+                            value: ch,
+                            label: ch,
+                            fillColor: co[ch] && co[ch].fillColor,
+                            textColor: co[ch] && co[ch].textColor
+                        })), 'choice');
+                    }
+                }
+            }
+        } catch (e) { /* repli silencieux */ }
+
+        if (Array.isArray(distinctFallback) && distinctFallback.length) {
+            const seen = [];
+            for (const v of distinctFallback) { if (v != null && v !== '' && seen.indexOf(v) === -1) seen.push(v); }
+            if (seen.length) return buildStatusConfig(seen.map(v => ({ value: v, label: v })), 'data');
+        }
+        return buildStatusConfig(DEFAULT_STATUSES.slice(), 'default');
+    }
+
+    function getStatus(cfg, value) {
+        if (cfg && cfg.byValue && cfg.byValue[value]) return cfg.byValue[value];
+        return { value: value, label: value || '', fillColor: '#94a3b8', textColor: '#ffffff' };
+    }
+    function isTerminal(cfg, value) { return !!cfg && value === cfg.terminalValue; }
+
+    /* Seme les options (choix + couleurs) sur une colonne Choice si elle n'en a
+     * pas encore. Defensif. A appeler depuis ensureSchema apres creation.
+     */
+    async function seedStatusChoices(grist, table, column, statuses) {
+        try {
+            const tid = await tableRowId(grist, table);
+            if (tid == null) return;
+            const cols = columnarToRows(await grist.docApi.fetchTable('_grist_Tables_column'));
+            const col = cols.find(c => c.parentId === tid && c.colId === column);
+            if (!col) return;
+            let opt = {};
+            try { opt = JSON.parse(col.widgetOptions || '{}') || {}; } catch (e) { opt = {}; }
+            if (Array.isArray(opt.choices) && opt.choices.length) return; // deja configure : on respecte
+            const list = statuses && statuses.length ? statuses : DEFAULT_STATUSES;
+            const choiceOptions = {};
+            for (const s of list) choiceOptions[s.value] = { fillColor: s.fillColor, textColor: s.textColor };
+            const widgetOptions = JSON.stringify({ choices: list.map(s => s.value), choiceOptions: choiceOptions });
+            await grist.docApi.applyUserActions([['ModifyColumn', table, column, { widgetOptions: widgetOptions }]]);
+        } catch (e) { console.warn('TF.seedStatusChoices:', e && e.message); }
+    }
+
+    /* ----- #2 : colonnes d'affichage des Ref (noms au lieu des IDs) ---------
+     * Pose le visibleCol + la display formula sur des colonnes Ref pour que les
+     * VUES NATIVES Grist affichent un libelle plutot que l'ID de ligne.
+     * specs : [{ table:'Tasks', column:'projet', visibleColId:'nom' }, ...]
+     * DEFENSIF : si Grist refuse une action, on log et on continue ; au pire
+     * l'affichage reste en IDs (comportement actuel), jamais de casse.
+     * --------------------------------------------------------------------- */
+    async function setRefDisplayColumns(grist, specs) {
+        if (!Array.isArray(specs) || !specs.length) return;
+        try {
+            const tables = columnarToRows(await grist.docApi.fetchTable('_grist_Tables'));
+            const cols = columnarToRows(await grist.docApi.fetchTable('_grist_Tables_column'));
+            const tidOf = (tableId) => { const r = tables.find(t => t.tableId === tableId); return r ? r.id : null; };
+            const colOf = (tableRow, colId) => cols.find(c => c.parentId === tableRow && c.colId === colId);
+
+            const actions = [];
+            for (const s of specs) {
+                const srcTid = tidOf(s.table);
+                if (srcTid == null) continue;
+                const refCol = colOf(srcTid, s.column);
+                if (!refCol) continue;
+                // Table cible deduite du type "Ref:Target" / "RefList:Target".
+                const m = /^(?:Ref|RefList):(.+)$/.exec(refCol.type || '');
+                if (!m) continue;
+                const targetTid = tidOf(m[1]);
+                if (targetTid == null) continue;
+                const visCol = colOf(targetTid, s.visibleColId);
+                if (!visCol) continue;
+                // Eviter de re-poser si deja correct.
+                if (refCol.visibleCol === visCol.id) continue;
+                actions.push(['SetDisplayFormula', s.table, null, refCol.id, '$' + s.column + '.' + s.visibleColId]);
+                actions.push(['UpdateRecord', '_grist_Tables_column', refCol.id, { visibleCol: visCol.id }]);
+            }
+            if (actions.length) await grist.docApi.applyUserActions(actions);
+        } catch (e) { console.warn('TF.setRefDisplayColumns:', e && e.message); }
+    }
+
+    /* ----- #3 : plan de charge (heures par personne) ------------------------
+     * Stockage : colonne Text `charges` sur Tasks, JSON [{teamId, heures}].
+     * Parse defensif identique au pattern subtasks.
+     * --------------------------------------------------------------------- */
+    function parseCharges(v) {
+        try {
+            const a = JSON.parse(v || '[]');
+            if (!Array.isArray(a)) return [];
+            return a.filter(x => x && x.teamId != null)
+                    .map(x => ({ teamId: Number(x.teamId), heures: Number(x.heures) || 0 }))
+                    .filter(x => !isNaN(x.teamId));
+        } catch (e) { return []; }
+    }
+    function chargesToJson(arr) {
+        return JSON.stringify((arr || [])
+            .filter(x => x && x.teamId != null)
+            .map(x => ({ teamId: Number(x.teamId), heures: Number(x.heures) || 0 }))
+            .filter(x => !isNaN(x.teamId)));
+    }
+    // Heures totales d'une tache (somme des charges par personne).
+    function chargeTotal(charges) { return parseCharges(typeof charges === 'string' ? charges : JSON.stringify(charges || [])).reduce((s, c) => s + c.heures, 0); }
+    // Agrege la charge par membre sur une liste de taches (chaque tache expose .charges).
+    function chargeByMember(tasks) {
+        const by = {};
+        for (const t of (tasks || [])) {
+            for (const c of parseCharges(t && t.charges)) {
+                by[c.teamId] = (by[c.teamId] || 0) + c.heures;
+            }
+        }
+        return by;
+    }
+
+    // Cle de periode : semaine ISO 'YYYY-Www' ou mois 'YYYY-MM'.
+    function periodKey(date, granularity) {
+        if (granularity === 'month') {
+            return date.getUTCFullYear() + '-' + String(date.getUTCMonth() + 1).padStart(2, '0');
+        }
+        const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+        const day = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - day);
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        return d.getUTCFullYear() + '-W' + String(week).padStart(2, '0');
+    }
+
+    // #3 plan de charge temporel : etale les charges PROPRES de chaque tache sur sa
+    // duree (jours calendaires), agrege par personne et par periode.
+    // dateDebut/dateEcheance = timestamps Unix SECONDES (Grist). Tache sans dates ou
+    // sans charge = ignoree. Retourne { teamId: { periodKey: heures } }.
+    function chargeByMemberPeriod(tasks, granularity) {
+        const g = granularity === 'month' ? 'month' : 'week';
+        const out = {};
+        for (const t of (tasks || [])) {
+            const charges = parseCharges(t && t.charges);
+            if (!charges.length) continue;
+            const s = t.dateDebut, e = t.dateEcheance;
+            if (s == null || e == null) continue;
+            const day0 = Math.floor((s * 1000) / 86400000);
+            const day1 = Math.floor((e * 1000) / 86400000);
+            const nDays = Math.max(day1 - day0 + 1, 1);
+            for (const c of charges) {
+                const perDay = (Number(c.heures) || 0) / nDays;
+                if (!perDay) continue;
+                if (!out[c.teamId]) out[c.teamId] = {};
+                for (let dd = day0; dd <= day1; dd++) {
+                    const key = periodKey(new Date(dd * 86400000), g);
+                    out[c.teamId][key] = (out[c.teamId][key] || 0) + perDay;
+                }
+            }
+        }
+        return out;
+    }
+
+    // Decale une date de n periodes (semaine = 7 jours, mois = 1 mois).
+    function shiftPeriods(date, granularity, n) {
+        const d = new Date(date.getTime());
+        if (granularity === 'month') d.setUTCMonth(d.getUTCMonth() + n);
+        else d.setUTCDate(d.getUTCDate() + n * 7);
+        return d;
+    }
+
+    // Liste contigue de cles de periode (semaine ISO ou mois) a partir d'une date,
+    // alignee sur le debut de periode (lundi / 1er du mois). Inclut les periodes vides.
+    function periodRange(startDate, granularity, count) {
+        const g = granularity === 'month' ? 'month' : 'week';
+        let d = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate()));
+        if (g === 'week') { const day = d.getUTCDay() || 7; d.setUTCDate(d.getUTCDate() - day + 1); }
+        else { d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)); }
+        const out = [];
+        for (let i = 0; i < count; i++) {
+            out.push(periodKey(d, g));
+            if (g === 'week') d.setUTCDate(d.getUTCDate() + 7);
+            else d.setUTCMonth(d.getUTCMonth() + 1);
+        }
+        return out;
+    }
+
+    // chargeMatrix : generalise chargeByMemberPeriod. Etale les charges (via getCharges,
+    // defaut parseCharges) sur la duree, agrege par cle keyFn(t, charge) et periode.
+    function chargeMatrix(tasks, keyFn, granularity, getCharges, workdays) {
+        const g = granularity === 'month' ? 'month' : 'week';
+        const out = {};
+        for (const t of (tasks || [])) {
+            const charges = getCharges ? getCharges(t) : parseCharges(t && t.charges);
+            if (!charges.length || t.dateDebut == null || t.dateEcheance == null) continue;
+            const d0 = Math.floor((t.dateDebut * 1000) / 86400000), d1 = Math.floor((t.dateEcheance * 1000) / 86400000);
+            const days = [];
+            for (let dd = d0; dd <= d1; dd++) { if (workdays) { const wd = new Date(dd * 86400000).getUTCDay(); if (wd < 1 || wd > 5) continue; } days.push(dd); }
+            if (!days.length) days.push(d0);
+            for (const c of charges) {
+                const key = keyFn(t, c); if (key == null) continue;
+                const perDay = c.heures / days.length; if (!perDay) continue;
+                if (!out[key]) out[key] = {};
+                for (const dd of days) { const pk = periodKey(new Date(dd * 86400000), g); out[key][pk] = (out[key][pk] || 0) + perDay; }
+            }
+        }
+        return out;
+    }
+
+    return {
+        DEFAULT_STATUSES: DEFAULT_STATUSES,
+        columnarToRows: columnarToRows,
+        loadStatusConfig: loadStatusConfig,
+        buildStatusConfig: buildStatusConfig,
+        getStatus: getStatus,
+        isTerminal: isTerminal,
+        seedStatusChoices: seedStatusChoices,
+        setRefDisplayColumns: setRefDisplayColumns,
+        parseCharges: parseCharges,
+        chargesToJson: chargesToJson,
+        chargeTotal: chargeTotal,
+        chargeByMember: chargeByMember,
+        periodKey: periodKey,
+        chargeByMemberPeriod: chargeByMemberPeriod,
+        shiftPeriods: shiftPeriods,
+        periodRange: periodRange,
+        chargeMatrix: chargeMatrix
+    };
+})();
+// </taskflow-core>
+let statusCfg = TF.buildStatusConfig(TF.DEFAULT_STATUSES, 'default'); // #1 : statuts dynamiques (sous-ensemble Whiteboard)
 
 /* ══════════════════════════════════════════════════════
    CONFIG
@@ -862,14 +1209,7 @@ function updVB() {
    BOOTSTRAP — UI logging
    ══════════════════════════════════════════════════════ */
 const Boot = {
-  log(msg, cls) {
-    const el = Q('#boot-log');
-    const span = document.createElement('span');
-    if (cls) span.className = 'boot-' + cls;
-    span.textContent = msg + '\n';
-    el.appendChild(span);
-    el.scrollTop = el.scrollHeight;
-  },
+  log() { /* no-op : init silencieuse — plus de log technique affiché à l'utilisateur */ },
   hide() {
     const el = Q('#boot');
     el.classList.add('hidden');
@@ -983,7 +1323,7 @@ const GB = {
 
     } catch (e) {
       console.error('Grist init:', e);
-      Boot.log('✗ Erreur: ' + e.message, 'err');
+      const _m = Q('#boot-msg'); if (_m) { _m.textContent = 'Connexion à Grist impossible.'; _m.style.display = 'block'; }
       Boot.showActions([
         { label: 'Mode autonome', fn: () => { S.alone = true; Boot.hide(); initDemo(); } },
         { label: 'Réessayer', cls: 'primary', fn: () => location.reload() },
@@ -1721,6 +2061,7 @@ const GB = {
 
       // Charger Tasks
       const tData = await grist.docApi.fetchTable('Tasks');
+      try { statusCfg = await TF.loadStatusConfig(grist, 'Tasks', 'statut', tData?.statut || []); } catch (e) {}
       if (tData?.id) {
         S.taskCache.clear();
         for (let i = 0; i < tData.id.length; i++) {
@@ -1945,6 +2286,15 @@ function ren(id) {
 }
 
 /* ── Rendu structuré d'un sticky TaskFlow ── */
+/* ── Couleurs de cartes adaptées au thème (task-stickies / sous-tâches) ── */
+const _mqDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+function isDarkTheme() { return !!(_mqDark && _mqDark.matches); }
+function cardBg()    { return isDarkTheme() ? '#1e2940' : '#fff'; }
+function cardBg2()   { return isDarkTheme() ? '#1e2940' : '#f0f4f8'; }
+function cardInk()   { return isDarkTheme() ? '#e2e8f0' : '#1e293b'; }
+function cardTrack() { return isDarkTheme() ? '#2a3550' : '#e2e8f0'; }
+if (_mqDark && _mqDark.addEventListener) _mqDark.addEventListener('change', () => { try { reloadCtx(); } catch (e) {} });
+
 function renTaskSticky(id, el) {
   const task = S.taskCache.get(el.taskRef);
   if (!task) return ren(id);  // fallback sticky normal
@@ -1962,8 +2312,7 @@ function renTaskSticky(id, el) {
     }
   }
   const PRIO_COL = { 1: '#ef4444', 2: '#f59e0b', 3: '#3b82f6', 4: '#64748b' };
-  const STAT_COL = { todo: '#94a3b8', inprogress: '#3b82f6', review: '#f59e0b', done: '#22c55e' };
-  const STAT_LBL = { todo: 'À faire', inprogress: 'En cours', review: 'En revue', done: 'Terminé' };
+  const STAT_COL = {}, STAT_LBL = {}; statusCfg.list.forEach(s => { STAT_COL[s.value] = s.fillColor; STAT_LBL[s.value] = s.label; }); // #1 statuts dynamiques
   const pCol = PRIO_COL[task.priorite] || '#64748b';
   const sCol = STAT_COL[task.statut] || '#94a3b8';
   const sLbl = STAT_LBL[task.statut] || task.statut;
@@ -1985,7 +2334,7 @@ function renTaskSticky(id, el) {
   const bd = ce('rect'); bd.classList.add('sy');
   bd.setAttribute('x', x); bd.setAttribute('y', y);
   bd.setAttribute('width', w); bd.setAttribute('height', h);
-  bd.setAttribute('fill', '#fff');
+  bd.setAttribute('fill', cardBg());
   g.appendChild(bd);
 
   // Barre priorité (gauche)
@@ -2022,7 +2371,7 @@ function renTaskSticky(id, el) {
   div.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
   div.style.cssText = 'padding:6px 6px 4px;height:100%;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;font-family:Inter,sans-serif;pointer-events:none';
   div.innerHTML =
-    `<div style="font-size:12px;font-weight:600;color:#1e293b;line-height:1.3;flex:1;` +
+    `<div style="font-size:12px;font-weight:600;color:${cardInk()};line-height:1.3;flex:1;` +
       `overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">${esc(task.titre)}</div>` +
     `<div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;flex-shrink:0">` +
       `<span style="font-size:8px;font-weight:700;padding:1px 5px;border-radius:8px;` +
@@ -2030,7 +2379,7 @@ function renTaskSticky(id, el) {
       `<div style="display:flex;align-items:center">${assigneeHtml}</div>` +
     `</div>` +
     `<div style="margin-top:4px;flex-shrink:0">` +
-      `<div style="height:3px;background:#e2e8f0;border-radius:2px;overflow:hidden">` +
+      `<div style="height:3px;background:${cardTrack()};border-radius:2px;overflow:hidden">` +
         `<div style="height:100%;width:${prog}%;background:${pCol};border-radius:2px;transition:width .3s"></div>` +
       `</div>` +
     `</div>` +
@@ -2101,7 +2450,7 @@ function renSubtask(id, el) {
   const bd = ce('rect'); bd.classList.add('sy');
   bd.setAttribute('x', x); bd.setAttribute('y', y);
   bd.setAttribute('width', w); bd.setAttribute('height', h);
-  bd.setAttribute('fill', (!color || color === '#fff') ? '#f0f4f8' : color);
+  bd.setAttribute('fill', (!color || color === '#fff') ? cardBg2() : color);
   g.appendChild(bd);
 
   // Barre gauche (vert si done, gris sinon)
@@ -2131,7 +2480,7 @@ function renSubtask(id, el) {
 
   const textStyle = isDone
     ? 'text-decoration:line-through;color:#94a3b8'
-    : 'color:#1e293b';
+    : 'color:' + cardInk();
 
   const div = document.createElement('div');
   div.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
@@ -3329,8 +3678,7 @@ function updCtxPanel() {
   cc.classList.add('ctx-mode');
 
   /* ── Constantes d'affichage ── */
-  const STAT_COL = { todo:'#94a3b8', inprogress:'#3b82f6', review:'#f59e0b', done:'#22c55e' };
-  const STAT_LBL = { todo:'À faire', inprogress:'En cours', review:'En revue', done:'Terminé' };
+  const STAT_COL = {}, STAT_LBL = {}; statusCfg.list.forEach(s => { STAT_COL[s.value] = s.fillColor; STAT_LBL[s.value] = s.label; }); // #1 statuts dynamiques
   const PRIO_COL = { 1:'#ef4444', 2:'#f59e0b', 3:'#3b82f6', 4:'#64748b' };
 
   const typeLabel = task ? 'Tâche' : (el.type === 'zone' ? 'Zone' : 'Note');
@@ -3443,8 +3791,7 @@ function updCtxPanel() {
     if (el.taskRef > 0) {
       const lkTask = S.taskCache.get(el.taskRef);
       const lkProj = lkTask ? S.projCache.get(lkTask.projet) : null;
-      const STAT_COL = { todo:'#94a3b8', inprogress:'#3b82f6', review:'#f59e0b', done:'#22c55e' };
-      const STAT_LBL = { todo:'À faire', inprogress:'En cours', review:'En revue', done:'Terminé' };
+      const STAT_COL = {}, STAT_LBL = {}; statusCfg.list.forEach(s => { STAT_COL[s.value] = s.fillColor; STAT_LBL[s.value] = s.label; }); // #1 statuts dynamiques
       if (lkTask) {
         const sCol = STAT_COL[lkTask.statut] || '#94a3b8';
         const sLbl = STAT_LBL[lkTask.statut] || '—';
