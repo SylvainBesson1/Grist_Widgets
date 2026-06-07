@@ -603,9 +603,9 @@
         // SCHEMA & CONSTANTS
         // ═══════════════════════════════════════════════════════════════════════
         const TASKFLOW_SCHEMA = {
-            Team: [{ id: 'nom', type: 'Text' }, { id: 'email', type: 'Text' }, { id: 'avatar', type: 'Text' }, { id: 'role', type: 'Choice' }, { id: 'actif', type: 'Bool' }, { id: 'couleur', type: 'Text' }, { id: 'capaciteHebdo', type: 'Numeric' }, { id: 'indispos', type: 'Text' }],  // TEAM-01 ; capaciteHebdo + indispos (JSON [{start,end,label}]) : plan de charge
+            Team: [{ id: 'nom', type: 'Text' }, { id: 'email', type: 'Text' }, { id: 'avatar', type: 'Text' }, { id: 'role', type: 'Choice' }, { id: 'actif', type: 'Bool' }, { id: 'couleur', type: 'Text' }],  // TEAM-01 (capaciteHebdo/indispos creees a la demande par le widget Plan)
             Projects: [{ id: 'nom', type: 'Text' }, { id: 'couleur', type: 'Text' }, { id: 'dateDebut', type: 'Date' }, { id: 'dateFin', type: 'Date' }, { id: 'responsable', type: 'Ref:Team' }, { id: 'actif', type: 'Bool' }],
-            Tasks: [{ id: 'titre', type: 'Text' }, { id: 'description', type: 'Text' }, { id: 'dateDebut', type: 'Date' }, { id: 'dateEcheance', type: 'Date' }, { id: 'priorite', type: 'Choice' }, { id: 'statut', type: 'Choice' }, { id: 'progression', type: 'Numeric' }, { id: 'projet', type: 'Ref:Projects' }, { id: 'assignees', type: 'RefList:Team' }, { id: 'type', type: 'Choice' }, { id: 'dependDe', type: 'RefList:Tasks' }, { id: 'tags', type: 'ChoiceList' }, { id: 'estimationH', type: 'Numeric' }, { id: 'tempsPasse', type: 'Numeric' }, { id: 'couleur', type: 'Text' }, { id: 'subtasks', type: 'Text' }, { id: 'parentTask', type: 'Ref:Tasks' }, { id: 'charges', type: 'Text' }, { id: 'dateCloture', type: 'Date' }]  // WBS-01: parentTask ; #3: charges = plan de charge JSON [{teamId,heures}] ; dateCloture = date de cloture auto (statut terminal) -> realise/delai
+            Tasks: [{ id: 'titre', type: 'Text' }, { id: 'description', type: 'Text' }, { id: 'dateDebut', type: 'Date' }, { id: 'dateEcheance', type: 'Date' }, { id: 'priorite', type: 'Choice' }, { id: 'statut', type: 'Choice' }, { id: 'progression', type: 'Numeric' }, { id: 'projet', type: 'Ref:Projects' }, { id: 'assignees', type: 'RefList:Team' }, { id: 'type', type: 'Choice' }, { id: 'dependDe', type: 'RefList:Tasks' }, { id: 'tags', type: 'ChoiceList' }, { id: 'estimationH', type: 'Numeric' }, { id: 'tempsPasse', type: 'Numeric' }, { id: 'couleur', type: 'Text' }, { id: 'subtasks', type: 'Text' }, { id: 'parentTask', type: 'Ref:Tasks' }]  // WBS-01: parentTask (charges/dateCloture creees a la demande par le widget Plan)
         };
         const PRIORITY_LABELS = { 1: 'Critique', 2: 'Haute', 3: 'Moyenne', 4: 'Basse' };
         const PRIORITY_COLORS = { 1: '#e5484d', 2: '#f0982d', 3: '#4c7ef3', 4: '#8a97ab' };
@@ -948,6 +948,7 @@
         // STATE
         // ═══════════════════════════════════════════════════════════════════════
         let tasks = [], team = [], projects = [], gristReady = false;
+        let TASK_COLS = new Set(); // colonnes reelles de la table Tasks (sweet spot : charges/dateCloture n'existent que si le widget Plan a ete ouvert)
         let statusCfg = TF.buildStatusConfig(TF.DEFAULT_STATUSES, 'default'); // #1 : statuts dynamiques, alimente par TF.loadStatusConfig en mode Grist
         let groupBy = 'statut', searchQuery = '', selectedTaskId = null;
         let colorMode = localStorage.getItem('taskflow_kanban_colormode') || 'priority';
@@ -1124,6 +1125,8 @@
         // GRIST
         // ═══════════════════════════════════════════════════════════════════════
         function convertGristToRecords(data) { if (!data || Array.isArray(data)) return data || []; const cols = Object.keys(data); if (!cols.length) return []; const n = data[cols[0]]?.length || 0; const records = []; for (let i = 0; i < n; i++) { const rec = {}; cols.forEach(k => { rec[k] = data[k][i]; }); records.push(rec); } return records; }
+        // sweet spot : ne jamais ecrire une colonne absente du schema (ex. charges/dateCloture si le Plan n'a jamais ete ouvert). Fail-open si TASK_COLS pas encore peuple.
+        function pruneTaskRecord(rec) { if (TASK_COLS.size) { for (const k in rec) if (!TASK_COLS.has(k)) delete rec[k]; } return rec; }
         async function ensureSchema() { let created = 0; const tablesCreated = []; for (const [tableName, columns] of Object.entries(TASKFLOW_SCHEMA)) { let existingCols = [], tableExists = false; try { const data = await grist.docApi.fetchTable(tableName); existingCols = Object.keys(data).filter(c => c !== 'id' && c !== 'manualSort'); tableExists = true; } catch (e) { try { await grist.docApi.applyUserActions([['AddTable', tableName, columns.map(c => ({ id: c.id, type: c.type }))]]); tablesCreated.push(tableName); created++; continue; } catch (e2) { continue; } } if (tableExists) { const missing = columns.filter(c => !existingCols.includes(c.id)); for (const col of missing) { try { await grist.docApi.applyUserActions([['AddColumn', tableName, col.id, { type: col.type }]]); } catch (e) {} } } } if (tablesCreated.includes('Tasks')) await seedData();
             // #1 : semer les statuts par defaut (choix + couleurs) sur la colonne Choice si vierge
             await TF.seedStatusChoices(grist, 'Tasks', 'statut', TF.DEFAULT_STATUSES);
@@ -1166,7 +1169,7 @@
                 ]);
             } catch (e) { console.log('Seed error:', e); }
         }
-        async function loadAllData() { try { tasks = convertGristToRecords(await grist.docApi.fetchTable('Tasks')); } catch (e) { tasks = []; } try { team = convertGristToRecords(await grist.docApi.fetchTable('Team')); } catch (e) { team = []; } try { projects = convertGristToRecords(await grist.docApi.fetchTable('Projects')); } catch (e) { projects = []; } gristReady = true; rebuildChildrenCache(); try { statusCfg = await TF.loadStatusConfig(grist, 'Tasks', 'statut', tasks.map(t => t && t.statut)); } catch (e) {} updateFilterMenus(); render(); }
+        async function loadAllData() { try { const _raw = await grist.docApi.fetchTable('Tasks'); TASK_COLS = new Set(Object.keys(_raw || {})); tasks = convertGristToRecords(_raw); } catch (e) { tasks = []; } try { team = convertGristToRecords(await grist.docApi.fetchTable('Team')); } catch (e) { team = []; } try { projects = convertGristToRecords(await grist.docApi.fetchTable('Projects')); } catch (e) { projects = []; } gristReady = true; rebuildChildrenCache(); try { statusCfg = await TF.loadStatusConfig(grist, 'Tasks', 'statut', tasks.map(t => t && t.statut)); } catch (e) {} updateFilterMenus(); render(); }
 
         // ═══════════════════════════════════════════════════════════════════════
         // FILTERS
@@ -1394,7 +1397,7 @@
             Object.assign(task, updates);
             
             if (gristReady) {
-                try { await grist.docApi.applyUserActions([['UpdateRecord', 'Tasks', taskId, updates]]); showSaveIndicator(); }
+                try { await grist.docApi.applyUserActions([['UpdateRecord', 'Tasks', taskId, pruneTaskRecord(updates)]]); showSaveIndicator(); }
                 catch (e) { showToast('Erreur déplacement', 'error'); await loadAllData(); }
             }
             render();  // garde les états vides cohérents après un déplacement
@@ -1669,7 +1672,7 @@
                                 <div class="tc-box"><div class="tcl">Passé</div><div class="tcv"><input type="number" min="0" step="0.5" value="${passe || ''}" placeholder="0" onchange="updateField('tempsPasse', parseFloat(this.value) || null)"><small>h</small></div></div>
                             </div>
                             ${estim > 0 ? `<div class="tc-bar"><i class="${timeOver ? 'over' : ''}" style="width:${timePercent}%"></i></div><div class="tc-foot"><span>${Math.round((passe/estim)*100)}% consommé</span><span>reste ${Math.max(estim-passe,0)} h</span></div>` : ''}
-                            ${data.assignees.length ? `<div style="margin-top:13px"><div class="prop-label" style="margin-bottom:6px">Charge par personne</div>${data.assignees.map(id => `<div class="charge-row"><span class="an">${escapeHtml(getTeamMemberName(id))}</span><input type="number" min="0" step="0.5" value="${chargeOf(id)}" onchange="updateCharge(${id}, this.value)"><span style="font-size:0.75rem;color:var(--text-muted)">h</span></div>`).join('')}<div style="margin-top:6px;font-size:0.78rem;color:var(--text-muted)">Total : <strong>${chargeTotalH}</strong> h</div></div>` : ''}${chargeConsolHtml}
+                            ${(data.assignees.length && TASK_COLS.has('charges')) ? `<div style="margin-top:13px"><div class="prop-label" style="margin-bottom:6px">Charge par personne</div>${data.assignees.map(id => `<div class="charge-row"><span class="an">${escapeHtml(getTeamMemberName(id))}</span><input type="number" min="0" step="0.5" value="${chargeOf(id)}" onchange="updateCharge(${id}, this.value)"><span style="font-size:0.75rem;color:var(--text-muted)">h</span></div>`).join('')}<div style="margin-top:6px;font-size:0.78rem;color:var(--text-muted)">Total : <strong>${chargeTotalH}</strong> h</div></div>` : ''}${chargeConsolHtml}
                         </div>
                     </div>` : ''}
                     ${data.type === 'tache' ? `
@@ -1923,7 +1926,7 @@
             if (data.dateDebut && data.dateEcheance && data.dateDebut > data.dateEcheance) { showToast('La date de début ne peut pas dépasser la date de fin', 'error'); return; }
             syncLocalTask();  // FIX: Synchroniser localement avant envoi API
             const record = { titre: data.titre, description: data.description, type: data.type, priorite: data.priorite, statut: data.statut, progression: data.progression, dateDebut: data.dateDebut, dateEcheance: data.dateEcheance, projet: data.projet, assignees: toGristRefList(data.assignees), dependDe: toGristRefList(data.dependDe), tags: toGristChoiceList(data.tags), estimationH: data.estimationH, tempsPasse: data.tempsPasse, subtasks: subtasksToJson(data.subtasks), couleur: data.couleur || null, parentTask: data.parentTask || null, charges: TF.chargesToJson((data.charges || []).filter(c => data.assignees.includes(c.teamId))), dateCloture: data.dateCloture || null };
-            try { await grist.docApi.applyUserActions([['UpdateRecord', 'Tasks', panelState.taskId, record]]); showSaveIndicator(); } catch (e) { showToast('Erreur sauvegarde', 'error'); }
+            try { await grist.docApi.applyUserActions([['UpdateRecord', 'Tasks', panelState.taskId, pruneTaskRecord(record)]]); showSaveIndicator(); } catch (e) { showToast('Erreur sauvegarde', 'error'); }
         }
 
         async function createTask() {
@@ -1932,7 +1935,7 @@
             if (data.dateDebut && data.dateEcheance && data.dateDebut > data.dateEcheance) { showToast('La date de début ne peut pas dépasser la date de fin', 'error'); return; }
             const record = { titre: data.titre, description: data.description || '', type: data.type || 'tache', priorite: data.priorite || '3', statut: data.statut || 'todo', progression: data.progression || 0, dateDebut: data.dateDebut, dateEcheance: data.dateEcheance, projet: data.projet, assignees: toGristRefList(data.assignees), dependDe: toGristRefList(data.dependDe), tags: toGristChoiceList(data.tags), estimationH: data.estimationH, tempsPasse: data.tempsPasse, subtasks: subtasksToJson(data.subtasks), couleur: data.couleur || null, parentTask: data.parentTask || null, charges: TF.chargesToJson((data.charges || []).filter(c => data.assignees.includes(c.teamId))), dateCloture: data.dateCloture || null };
             if (gristReady) {
-                try { await grist.docApi.applyUserActions([['AddRecord', 'Tasks', null, record]]); showToast('Créée', 'success'); await loadAllData(); closePanel(); } catch (e) { showToast('Erreur création', 'error'); }
+                try { await grist.docApi.applyUserActions([['AddRecord', 'Tasks', null, pruneTaskRecord(record)]]); showToast('Créée', 'success'); await loadAllData(); closePanel(); } catch (e) { showToast('Erreur création', 'error'); }
             } else { record.id = Date.now(); tasks.push(record); showToast('Créée', 'success'); render(); closePanel(); }
         }
 

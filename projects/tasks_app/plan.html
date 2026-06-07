@@ -1265,7 +1265,7 @@ async function loadGrist() {
     grist.docApi.fetchTable('Team').catch(() => null),
     grist.docApi.fetchTable('Projects').catch(() => null)
   ]);
-  team = await ensurePlanColumns(team);
+  const ensured = await ensurePlanColumns(team, tasks); team = ensured.team; tasks = ensured.tasks;
   S.tasks = tasks ? TF.columnarToRows(tasks) : [];
   S.team = team ? TF.columnarToRows(team) : [];
   S.projects = projects ? TF.columnarToRows(projects) : [];
@@ -1273,18 +1273,27 @@ async function loadGrist() {
   render();
 }
 
-// Le widget Plan contribue ses colonnes au schema Team (capaciteHebdo, indispos),
-// au meme titre que les autres widgets completent le schema via ensureSchema.
+// Le widget Plan est le CRÉATEUR UNIQUE de ses colonnes (sweet spot opt-in) : Team.capaciteHebdo/indispos
+// + Tasks.charges/dateCloture. Les autres widgets ne créent rien — ils n'activent leurs bouts "charge"
+// que si ces colonnes existent. Un doc qui n'ouvre jamais le Plan reste sans empreinte.
 let _colsEnsured = false;
-async function ensurePlanColumns(team) {
-  if (!team || _colsEnsured) return team;
+async function ensurePlanColumns(team, tasks) {
+  if (_colsEnsured) return { team, tasks };
   const add = [];
-  if (!('capaciteHebdo' in team)) add.push(['AddColumn', 'Team', 'capaciteHebdo', { type: 'Numeric' }]);
-  if (!('indispos' in team)) add.push(['AddColumn', 'Team', 'indispos', { type: 'Text' }]);
+  if (team && !('capaciteHebdo' in team)) add.push(['AddColumn', 'Team', 'capaciteHebdo', { type: 'Numeric' }]);
+  if (team && !('indispos' in team)) add.push(['AddColumn', 'Team', 'indispos', { type: 'Text' }]);
+  if (tasks && !('charges' in tasks)) add.push(['AddColumn', 'Tasks', 'charges', { type: 'Text' }]);
+  if (tasks && !('dateCloture' in tasks)) add.push(['AddColumn', 'Tasks', 'dateCloture', { type: 'Date' }]);
   _colsEnsured = true; // garde anti-ré-entrance (onRecords rappelle loadGrist pendant l'await)
-  if (!add.length) return team;
-  try { await grist.docApi.applyUserActions(add); return await grist.docApi.fetchTable('Team').catch(() => team); }
-  catch (e) { return team; }
+  if (!add.length) return { team, tasks };
+  try {
+    await grist.docApi.applyUserActions(add);
+    const [t2, tm2] = await Promise.all([
+      grist.docApi.fetchTable('Tasks').catch(() => tasks),
+      grist.docApi.fetchTable('Team').catch(() => team)
+    ]);
+    return { team: tm2, tasks: t2 };
+  } catch (e) { return { team, tasks }; }
 }
 
 function loadDemo() {
