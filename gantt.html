@@ -594,7 +594,7 @@
             <div class="sort-selector">
                 <select id="sortSelect" onchange="changeSortMode(this.value)">
                     <option value="type">Tri: Type</option>
-                    <option value="priority">Tri: Priority</option>
+                    <option value="priority">Tri: Priorité</option>
                     <option value="date">Tri: Date</option>
                     <option value="manual">Tri: Manuel</option>
                 </select>
@@ -602,9 +602,10 @@
             <div class="sort-selector">
                 <select id="colorSelect" onchange="changeColorMode(this.value)" title="Couleur des barres">
                     <option value="type">Couleur: Type</option>
-                    <option value="priority">Tri: Priority</option>
+                    <option value="priority">Couleur: Priorité</option>
                     <option value="project">Couleur: Projet</option>
                     <option value="assignee">Couleur: Assigné</option>
+                    <option value="assignee_role">Couleur: Role assigné</option>
                     <option value="status">Couleur: Statut</option>
                 </select>
             </div>
@@ -698,14 +699,28 @@
             evenement: { label: "Événement", color: "#f97316", icon: "🎉" }, // Orange foncé
             indisponibilite: { label: "Indisponibilité", color: "#6b7280", icon: "❌" } // Gris foncé
             };
-        // Configuration des champs affichés dans le tooltip (personnalisable)
+        const ROLE_CONFIG = {
+            "Moi": { color: "#3e5de7", label: "Moi" },                // Bleu (votre couleur par défaut)
+            "Direction": { color: "#ef4444", label: "Direction" },    // Rouge
+            "Com' ENS": { color: "#10b981", label: "Com' ENS" },        // Vert
+            "Com' BDL": { color: "#f59e0b", label: "Com' BDL" },        // Orange
+            "Resp. Axes": { color: "#8b5cf6", label: "Resp. Axes" },    // Violet
+            "TNI": { color: "#ec4899", label: "TNI" },                // Rose
+            "Resp. Sites": { color: "#14b8a6", label: "Resp. Sites" },  // Turquoise
+            "Com' & print Lyon 2": { color: "#64748b", label: "Com' & print Lyon 2" }, // Gris
+            "Com' & print Lyon 3": { color: "#f97316", label: "Com' & print Lyon 3" }, // Orange foncé
+            "Com' & print UJM": { color: "#06b6d4", label: "Com' & print UJM" }  // Cyan
+        };
         const TOOLTIP_FIELDS = [
             { key: 'type', label: 'Type', format: (t) => TYPE_CONFIG[getTaskType(t)]?.label || getTaskType(t) },
             { key: 'priorite', label: 'Priorité', format: (t) => PRIORITY_LABELS[getTaskPriority(t)] },
             { key: 'dates', label: 'Dates', format: (t) => formatDateShort(gristToDate(t.dateDebut)) + ' → ' + formatDateShort(gristToDate(t.dateEcheance)) },
             { key: 'projet', label: 'Projet', format: (t) => t.projet ? getProjectName(t.projet) : null },
             { key: 'progression', label: 'Progression', format: (t) => (t.progression || 0) + '%' },
-            { key: 'assignees', label: 'Assignés', format: (t) => { const a = getAssigneesArray(t); return a.length ? a.map(id => getTeamMemberName(id)).filter(Boolean).join(', ') : null; } }
+            { key: 'assignees', label: 'Assignés', format: (t) => { const a = getAssigneesArray(t); if (!a.length) 
+                return null; 
+                return a.map(id => { const name = getTeamMemberName(id); const role = getTeamMemberRole(id); 
+                return name + (role ? ' (' + role + ')' : '');     }).filter(Boolean).join(', '); } }
         ];
         const PRIORITY_COLORS = { 1: '#e5484d', 2: '#f0982d', 3: '#4c7ef3', 4: '#8a97ab' };
         // STATUS_COLORS / STATUS_LABELS supprimes : statuts lus dynamiquement via statusCfg (#1)
@@ -1162,11 +1177,35 @@
             if (t?.couleur && /^#[0-9a-f]{3,8}$/i.test(t.couleur)) return t.couleur;
             switch (colorMode) {
                 case 'project': return t?.projet ? getProjectColor(t.projet) : '#94a3b8';
-                case 'assignee': { const a = getAssigneesArray(t); return a.length ? getTeamMemberColor(a[0]) : '#94a3b8'; }
+                case 'assignee': {
+                    const a = getAssigneesArray(t);
+                    return a.length ? getTeamMemberColor(a[0]) : '#94a3b8';
+                }
+                case 'assignee_role': {
+                    const a = getAssigneesArray(t);
+                    if (a.length) {
+                        const firstAssignee = a[0];
+                        const role = getTeamMemberRole(firstAssignee);
+                        return role ? getRoleColor(role) : '#94a3b8';
+                    }
+                    return '#94a3b8';
+                }
                 case 'status': return TF.getStatus(statusCfg, t?.statut || statusCfg.firstValue).fillColor;
+                case 'type': return getTypeColor(t);
                 case 'priority':
                 default: return PRIORITY_COLORS[getTaskPriority(t)];
             }
+        }
+
+        // Récupère la couleur d'un rôle
+        function getRoleColor(role) {
+            return ROLE_CONFIG[role]?.color || "#94a3b8"; // Couleur par défaut si rôle inconnu
+        }
+
+        // Récupère le rôle d'un membre de l'équipe
+        function getTeamMemberRole(id) {
+            const member = team.find(x => x.id === id);
+            return member?.role || null;
         }
        function getTaskBarGradient(t, customColor = null) {
             const color = customColor || getTaskColor(t);
@@ -1638,9 +1677,15 @@
             } else if (colorMode === 'assignee') {
                 const visible = team.filter(m => m.actif !== false).slice(0, 8);
                 html = visible.map(m => item(getTeamMemberColor(m.id), escapeHtml(m.nom))).join('');
+            } else if (colorMode === 'assignee_role') {
+                // Afficher les rôles avec leurs couleurs
+                html = Object.entries(ROLE_CONFIG)
+                    .map(([role, config]) => item(config.color, config.label))
+                    .join('');
             }
             html += '<div class="legend-separator"></div><div class="legend-item"><div class="legend-milestone"></div>Jalon</div>';
             el.innerHTML = html;
+        
             }
 
         // Calcule la plage effective = période vue étendue uniquement pour les tâches qui la chevauchent
