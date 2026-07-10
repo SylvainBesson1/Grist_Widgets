@@ -199,7 +199,12 @@
         .legend-color { width: 10px; height: 10px; border-radius: 2px; }
         .legend-milestone { width: 8px; height: 8px; background: var(--text-muted); transform: rotate(45deg); }
         .legend-separator { width: 1px; height: 16px; background: var(--border); }
-
+        .legend-item svg {
+        width: 14px;
+        height: 14px;
+        margin-right: 4px;
+        vertical-align: middle;
+        }
         /* Panel Slide-in */
         .panel-overlay { position: absolute; top: 0; left: 0; right: var(--panel-width); bottom: 0; z-index: 40; opacity: 0; pointer-events: none; transition: opacity 0.25s ease; }
         .panel-overlay.visible { opacity: 1; pointer-events: auto; cursor: pointer; }
@@ -588,14 +593,16 @@
             <h1><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/><rect x="3" y="4" width="8" height="4" rx="1" fill="currentColor" stroke="none"/><rect x="8" y="10" width="10" height="4" rx="1" fill="currentColor" stroke="none"/><rect x="5" y="16" width="6" height="4" rx="1" fill="currentColor" stroke="none"/></svg> Gantt</h1>
             <div class="sort-selector">
                 <select id="sortSelect" onchange="changeSortMode(this.value)">
-                    <option value="priority">Tri: Priorité</option>
+                    <option value="type">Tri: Type</option>
+                    <option value="priority">Tri: Priority</option>
                     <option value="date">Tri: Date</option>
                     <option value="manual">Tri: Manuel</option>
                 </select>
             </div>
             <div class="sort-selector">
                 <select id="colorSelect" onchange="changeColorMode(this.value)" title="Couleur des barres">
-                    <option value="priority">Couleur: Priorité</option>
+                    <option value="type">Couleur: Type</option>
+                    <option value="priority">Tri: Priority</option>
                     <option value="project">Couleur: Projet</option>
                     <option value="assignee">Couleur: Assigné</option>
                     <option value="status">Couleur: Statut</option>
@@ -679,8 +686,21 @@
         };
         const PRIORITY_LABELS = { 1: 'Critique', 2: 'Haute', 3: 'Moyenne', 4: 'Basse' };
         
+        const TYPE_CONFIG = {
+            jalon: { label: "Jalon", color: "#ef4444", icon: "◆" }, // Rouge pour les jalons
+            reunion: { label: "Réunion", color: "#3b82f6", icon: "📅" }, // Bleu pour les réunions
+            tache: { label: "Tâche", color: "#10b981", icon: "" }, // Vert pour les tâches classiques
+            reflexion: { label: "Réflexion", color: "#f59e0b", icon: "💭" }, // Orange pour les réflexions
+            organisation: { label: "Organisation et planification", color: "#8b5cf6", icon: "📋" }, // Violet
+            redaction: { label: "Rédaction", color: "#ec4899", icon: "✏️" }, // Rose
+            impression: { label: "Impression et installation", color: "#64748b", icon: "🖨️" }, // Gris
+            diffusion: { label: "Diffusion", color: "#14b8a6", icon: "📢" }, // Turquoise
+            evenement: { label: "Événement", color: "#f97316", icon: "🎉" }, // Orange foncé
+            indisponibilite: { label: "Indisponibilité", color: "#6b7280", icon: "❌" } // Gris foncé
+            };
         // Configuration des champs affichés dans le tooltip (personnalisable)
         const TOOLTIP_FIELDS = [
+            { key: 'type', label: 'Type', format: (t) => TYPE_LABELS[getType(t)] },
             { key: 'priorite', label: 'Priorité', format: (t) => PRIORITY_LABELS[getTaskPriority(t)] },
             { key: 'dates', label: 'Dates', format: (t) => formatDateShort(gristToDate(t.dateDebut)) + ' → ' + formatDateShort(gristToDate(t.dateEcheance)) },
             { key: 'projet', label: 'Projet', format: (t) => t.projet ? getProjectName(t.projet) : null },
@@ -1066,6 +1086,7 @@
         const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
         const getTaskPriority = (t) => (t?.priorite >= 1 && t?.priorite <= 4) ? parseInt(t.priorite) : 3;
         const isJalon = (t) => t?.type === 'jalon';
+        const getTaskType = (t) => t?.type || "tache"; // Par défaut : "tache"
 
         function showToast(msg, type = 'info') { const c = document.getElementById('toastContainer'); const t = document.createElement('div'); t.className = 'toast ' + type; t.textContent = msg; c.appendChild(t); setTimeout(() => t.remove(), 3000); }
         
@@ -1133,7 +1154,7 @@
         // Project/Team helpers
         const getProjectName = (id) => { const p = projects.find(x => x.id === id); return p?.nom || ''; };
         const getProjectColor = (id) => { const p = projects.find(x => x.id === id); return p?.couleur || '#64748b'; };
-        const getTeamMemberName = (id) => { const m = team.find(x => x.id === id); return m?.nom || ''; };
+        function getTypeColor(t) { const type = getTaskType(t); return TYPE_CONFIG[type]?.color || "#94a3b8"; };
         const getTeamMemberColor = (id) => { const m = team.find(x => x.id === id); return m?.couleur || '#3e5de7'; };
         const getInitials = (n) => n ? n.split(' ').map(x => x[0]).join('').toUpperCase().slice(0, 2) : '?';
 
@@ -1148,11 +1169,15 @@
                 default: return PRIORITY_COLORS[getTaskPriority(t)];
             }
         }
-        function getTaskBarGradient(t) {
-            const c = getTaskColor(t);
-            return 'linear-gradient(135deg, ' + c + ', color-mix(in srgb, ' + c + ' 70%, white))';
+       function getTaskBarGradient(t, customColor = null) {
+            const color = customColor || getTaskColor(t);
+            return 'linear-gradient(135deg, ' + color + ', color-mix(in srgb, ' + color + ' 70%, white))';
+            }
+        
+        function getTypeIcon(t) {
+        const type = getTaskType(t);
+        return TYPE_CONFIG[type]?.icon || "";
         }
-
         // ═══════════════════════════════════════════════════════════════════════
         // WBS (hiérarchie sous-tâches) — API commune
         // ═══════════════════════════════════════════════════════════════════════
@@ -1595,10 +1620,17 @@
         function renderLegend() {
             const el = document.getElementById('ganttLegend');
             if (!el) return;
-            const item = (color, label) => '<div class="legend-item"><div class="legend-color" style="background:' + color + '"></div>' + label + '</div>';
+
+            const item = (color, label, icon = "") => '<div class="legend-item"><div class="legend-color" style="background:' + color + '"></div>' + icon + ' ' + label + '</div>';
+
             let html = '';
             if (colorMode === 'priority') {
                 html = item(PRIORITY_COLORS[1], 'Critique') + item(PRIORITY_COLORS[2], 'Haute') + item(PRIORITY_COLORS[3], 'Moyenne') + item(PRIORITY_COLORS[4], 'Basse');
+            } else if (colorMode === 'type') {
+                // Afficher les types avec leurs couleurs et icônes
+                html = Object.entries(TYPE_CONFIG)
+                .map(([key, config]) => item(config.color, config.label, config.icon))
+                .join('');
             } else if (colorMode === 'status') {
                 html = statusCfg.list.map(s => item(s.fillColor, s.label)).join('');
             } else if (colorMode === 'project') {
@@ -1610,7 +1642,7 @@
             }
             html += '<div class="legend-separator"></div><div class="legend-item"><div class="legend-milestone"></div>Jalon</div>';
             el.innerHTML = html;
-        }
+            }
 
         // Calcule la plage effective = période vue étendue uniquement pour les tâches qui la chevauchent
         function computeEffectiveRange() {
@@ -1760,7 +1792,8 @@
                 // Dates affichées : agrégées si parent sans dates propres, sinon dates du parent
                 let start = gristToDate(t.dateDebut), end = gristToDate(t.dateEcheance);
                 if (isParent && !start && !end) { const agg = aggregateDates(t); start = gristToDate(agg.start); end = gristToDate(agg.end); }
-                const jalon = isJalon(t);
+                const typeIcon = getTypeIcon(t);
+                const isJalon = getTaskType(t) === "jalon";
                 const progress = isParent ? aggregateProgress(t) : (t.progression || 0);
                 const selected = t.id === selectedTaskId;
                 const assignees = getAssigneesArray(t);
@@ -1777,12 +1810,12 @@
                 const indent = depth * 18;
                 const classes = ['task-row', selected ? 'selected' : '', dimmed ? 'dimmed' : '', isParent ? 'parent' : ''].filter(Boolean).join(' ');
 
-                html += '<div class="' + classes + '" data-id="' + t.id + '" onclick="openTaskPanel(' + t.id + ')" style="padding-left:' + (12 + indent) + 'px">' +
+                html += '<div class="' + classes + '" data-id="' + t.id + '" onclick="openTaskPanel(' + t.id + ')">' +
                     '<span class="drag-handle">☰</span>' +
                     chevron +
                     '<div class="task-priority-bar p' + p + '"></div>' +
                     '<div class="task-info">' +
-                        '<div class="task-name">' + (jalon ? '◆ ' : '') + (escapeHtml(t.titre) || 'Sans titre') + '</div>' +
+                        '<div class="task-name">' + (typeIcon ? typeIcon + ' ' : '') + (escapeHtml(t.titre) || 'Sans titre') + '</div>' +
                         '<div class="task-meta">' +
                             '<span class="task-dates">' + formatDateShort(start) + ' → ' + formatDateShort(end) + '</span>' +
                             (!jalon ? '<span class="task-progress-badge">' + progress + '%</span>' : '') +
@@ -1935,7 +1968,10 @@
                     bar.style.left = barLeft + 'px';
                     bar.style.top = top + 'px';
                     bar.style.width = barWidth + 'px';
-                    bar.style.background = getTaskBarGradient(t);
+                    // Détermine la couleur en fonction du mode actuel
+                    const barColor = colorMode === 'type' ? getTypeColor(t) : getTaskColor(t);
+                    bar.style.background = getTaskBarGradient(t, barColor); // Passe la couleur personnalisée
+                    bar.style.borderColor = barColor; // Optionnel : synchroniser la bordure avec la couleur de fond
                     bar.style.borderColor = getTaskColor(t);
                     bar.innerHTML = '<div class="gantt-bar-progress" style="width:' + progVal + '%"></div>' +
                         (isParent ? '' : '<div class="resize-handle left" onmousedown="startDrag(event, this.parentElement, \'resize-left\')"></div>') +
