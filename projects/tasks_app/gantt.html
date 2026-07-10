@@ -700,7 +700,7 @@
             };
         // Configuration des champs affichés dans le tooltip (personnalisable)
         const TOOLTIP_FIELDS = [
-            { key: 'type', label: 'Type', format: (t) => TYPE_LABELS[getType(t)] },
+            { key: 'type', label: 'Type', format: (t) => TYPE_CONFIG[getTaskType(t)]?.label || getTaskType(t) },
             { key: 'priorite', label: 'Priorité', format: (t) => PRIORITY_LABELS[getTaskPriority(t)] },
             { key: 'dates', label: 'Dates', format: (t) => formatDateShort(gristToDate(t.dateDebut)) + ' → ' + formatDateShort(gristToDate(t.dateEcheance)) },
             { key: 'projet', label: 'Projet', format: (t) => t.projet ? getProjectName(t.projet) : null },
@@ -1085,8 +1085,7 @@
         const getDaysDiff = (a, b) => Math.round((b - a) / 86400000);
         const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
         const getTaskPriority = (t) => (t?.priorite >= 1 && t?.priorite <= 4) ? parseInt(t.priorite) : 3;
-        const isJalon = (t) => t?.type === 'jalon';
-        const getTaskType = (t) => t?.type || "tache"; // Par défaut : "tache"
+        const isJalon = (t) => getTaskType(t) === 'jalon';        const getTaskType = (t) => t?.type || "tache"; // Par défaut : "tache"
 
         function showToast(msg, type = 'info') { const c = document.getElementById('toastContainer'); const t = document.createElement('div'); t.className = 'toast ' + type; t.textContent = msg; c.appendChild(t); setTimeout(() => t.remove(), 3000); }
         
@@ -1175,8 +1174,8 @@
             }
         
         function getTypeIcon(t) {
-        const type = getTaskType(t);
-        return TYPE_CONFIG[type]?.icon || "";
+            const type = getTaskType(t);
+            return TYPE_CONFIG[type]?.icon || "";
         }
         // ═══════════════════════════════════════════════════════════════════════
         // WBS (hiérarchie sous-tâches) — API commune
@@ -1629,7 +1628,7 @@
             } else if (colorMode === 'type') {
                 // Afficher les types avec leurs couleurs et icônes
                 html = Object.entries(TYPE_CONFIG)
-                .map(([key, config]) => item(config.color, config.label, config.icon))
+                .map(([key, config]) => item(config.color, config.icon + ' ' + config.label))
                 .join('');
             } else if (colorMode === 'status') {
                 html = statusCfg.list.map(s => item(s.fillColor, s.label)).join('');
